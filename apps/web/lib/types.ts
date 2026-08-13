@@ -39,6 +39,7 @@ export type Evidence = {
 };
 
 export type DashboardData = {
+  status: "ready";
   portfolio: {
     id: string;
     name: string;
@@ -59,7 +60,37 @@ export type DashboardData = {
   evidence: Evidence[];
   valueHistory: Array<{ label: string; value: number }>;
   asOf: string;
-  sourceMode: "demo";
+  sourceMode: "manual" | "connected" | "demo";
+  connections: BrokerConnection[];
+};
+
+export type BrokerConnection = {
+  provider: "upstox" | "zerodha";
+  label: string;
+  configured: boolean;
+  status: "not_connected" | "connected" | "expired" | "action_required";
+  readOnly: true;
+  lastSyncedAt: string | null;
+  expiresAt: string | null;
+  detail: string;
+};
+
+export type SetupData = {
+  status: "needs_setup";
+  connections: BrokerConnection[];
+  supportedCurrencies: ["INR"];
+  csvColumns: ["symbol", "name", "exchange", "quantity", "average_cost", "current_price"];
+};
+
+export type PortfolioResponse = DashboardData | SetupData;
+
+export type HoldingInput = {
+  symbol: string;
+  name: string;
+  exchange: string;
+  quantity: number;
+  averageCost: number;
+  currentPrice: number;
 };
 
 export type ChatResponse = {

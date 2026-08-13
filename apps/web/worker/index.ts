@@ -5,6 +5,10 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  UPSTOX_CLIENT_ID?: string;
+  UPSTOX_CLIENT_SECRET?: string;
+  UPSTOX_REDIRECT_URI?: string;
+  CONNECTOR_ENCRYPTION_KEY?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -28,6 +32,12 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     globalThis.__PI_DB = env.DB;
+    globalThis.__PI_ENV = {
+      UPSTOX_CLIENT_ID: env.UPSTOX_CLIENT_ID,
+      UPSTOX_CLIENT_SECRET: env.UPSTOX_CLIENT_SECRET,
+      UPSTOX_REDIRECT_URI: env.UPSTOX_REDIRECT_URI,
+      CONNECTOR_ENCRYPTION_KEY: env.CONNECTOR_ENCRYPTION_KEY,
+    };
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {

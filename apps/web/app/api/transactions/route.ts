@@ -24,6 +24,9 @@ export async function POST(request: Request) {
     return Response.json(await getDashboard(owner), { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to record transaction";
-    return Response.json({ error: message }, { status: message.includes("UNIQUE") ? 409 : 400 });
+    const validationMessages = ["required", "must be", "cannot be", "not found", "already reversed", "negative", "Choose an instrument", "Complete portfolio"];
+    if (message.includes("UNIQUE")) return Response.json({ error: "This transaction was already recorded" }, { status: 409 });
+    if (validationMessages.some((part) => message.includes(part))) return Response.json({ error: message }, { status: 400 });
+    return Response.json({ error: "The transaction could not be recorded" }, { status: 500 });
   }
 }
