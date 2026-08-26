@@ -64,9 +64,9 @@ jobs:
       - name: Exercise browser-to-agent vertical slice
         shell: bash
         run: |
-          curl --retry 60 --retry-delay 2 --retry-connrefused -fsS http://localhost:8000/health/ready | jq -e '.status == "ready"'
-          curl --retry 60 --retry-delay 2 --retry-connrefused -fsS http://localhost:8001/health/ready | jq -e '.status == "ready"'
-          curl --retry 60 --retry-delay 2 --retry-connrefused -fsS http://localhost:3000 >/dev/null
+          curl --retry 60 --retry-delay 2 --retry-connrefused --retry-all-errors -fsS http://localhost:8000/health/ready | jq -e '.status == "ready"'
+          curl --retry 60 --retry-delay 2 --retry-connrefused --retry-all-errors -fsS http://localhost:8001/health/ready | jq -e '.status == "ready"'
+          curl --retry 60 --retry-delay 2 --retry-connrefused --retry-all-errors -fsS http://localhost:3000 >/dev/null
           portfolio_response=$(curl -fsS -X POST http://localhost:3000/api/core/v1/portfolios \
             -H 'Content-Type: application/json' \
             -d '{"name":"CI Portfolio","portfolio_type":"self_managed","base_currency":"INR","benchmark_code":"NIFTY_500_TRI","valuation_timezone":"Asia/Kolkata"}')
