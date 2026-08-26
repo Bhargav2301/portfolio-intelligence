@@ -1,7 +1,6 @@
 from datetime import date, datetime, timezone
 
 import pytest
-
 from pi_agent_runtime.models import AnalysisRunRequest, HoldingSnapshot, SymbolResult
 from pi_agent_runtime.workflow import LangGraphPortfolioWorkflow
 
