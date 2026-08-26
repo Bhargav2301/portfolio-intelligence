@@ -123,3 +123,75 @@ export const instrumentMappings = sqliteTable("instrument_mappings", {
   uniqueIndex("instrument_mappings_portfolio_symbol_idx").on(table.portfolioId, table.symbol),
   index("instrument_mappings_owner_idx").on(table.ownerEmail, table.portfolioId, table.symbol),
 ]);
+
+export const importBatches = sqliteTable("import_batches", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  portfolioId: text("portfolio_id").references(() => portfolios.id),
+  sourceKind: text("source_kind").notNull(),
+  sourceFilename: text("source_filename"),
+  sourceHash: text("source_hash").notNull(),
+  status: text("status").notNull(),
+  rowCount: integer("row_count").notNull(),
+  validRowCount: integer("valid_row_count").notNull(),
+  warningCount: integer("warning_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  rawRetained: integer("raw_retained").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  committedAt: text("committed_at"),
+}, (table) => [
+  uniqueIndex("import_batches_owner_hash_idx").on(table.ownerEmail, table.sourceHash),
+  index("import_batches_owner_created_idx").on(table.ownerEmail, table.createdAt),
+]);
+
+export const importRows = sqliteTable("import_rows", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull().references(() => importBatches.id),
+  rowNumber: integer("row_number").notNull(),
+  rowKind: text("row_kind").notNull(),
+  rawJson: text("raw_json"),
+  normalizedJson: text("normalized_json"),
+  validationStatus: text("validation_status").notNull(),
+  validationMessage: text("validation_message"),
+}, (table) => [
+  uniqueIndex("import_rows_batch_row_idx").on(table.batchId, table.rowNumber),
+  index("import_rows_batch_status_idx").on(table.batchId, table.validationStatus),
+]);
+
+export const portfolioLots = sqliteTable("portfolio_lots", {
+  id: text("id").primaryKey(),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id),
+  ownerEmail: text("owner_email").notNull(),
+  importBatchId: text("import_batch_id").references(() => importBatches.id),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").notNull(),
+  instrumentName: text("instrument_name").notNull(),
+  quantity: real("quantity").notNull(),
+  unitCost: real("unit_cost").notNull(),
+  acquiredAt: text("acquired_at"),
+  sourceRowNumber: integer("source_row_number"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  index("portfolio_lots_owner_portfolio_symbol_idx").on(table.ownerEmail, table.portfolioId, table.symbol),
+  index("portfolio_lots_import_batch_idx").on(table.importBatchId),
+]);
+
+export const evidenceDocuments = sqliteTable("evidence_documents", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  portfolioId: text("portfolio_id").references(() => portfolios.id),
+  importBatchId: text("import_batch_id").references(() => importBatches.id),
+  sourceFilename: text("source_filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sourceHash: text("source_hash").notNull(),
+  symbol: text("symbol"),
+  title: text("title").notNull(),
+  publisher: text("publisher"),
+  publishedAt: text("published_at"),
+  storageKey: text("storage_key"),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("evidence_documents_owner_hash_idx").on(table.ownerEmail, table.sourceHash),
+  index("evidence_documents_owner_portfolio_idx").on(table.ownerEmail, table.portfolioId),
+]);

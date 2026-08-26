@@ -6,18 +6,21 @@ conversational layer.
 
 ## V1 test boundary
 
-- D1-backed, per-user demo portfolio and append-only transaction ledger
+- D1-backed, per-user portfolio and append-only transaction ledger
+- First-run manual setup, canonical CSV / normalized JSON import, and read-only Upstox OAuth contract
+- Source-hashed import batches, normalized rows, and preserved acquisition lots
 - Buy and sell validation with explicit confirmation before persistence
 - Reversal events instead of destructive transaction edits
 - Deterministic holdings, cost basis, valuation, allocation, and what-if math
-- Source-tiered evidence records with timestamps and content hashes
+- Source-tiered evidence records plus metadata-only PDF registration with content hashes
 - Research copilot for portfolio questions, performance, risk, and evidence
 - Fail-closed response to personalized buy, sell, or hold requests
 - Responsive overview, research, activity, and scenario surfaces
 
-The included securities, prices, research records, and source URLs are
-fictional demonstration data. No live market-data or broker connector is active,
-and the application does not provide investment advice or execute trades.
+Demo portfolio data has been removed. Manual prices remain user-provided until
+updated; the Upstox connector becomes active only after production credentials
+are configured. The application does not provide investment advice or execute
+trades.
 
 ## Architecture
 
@@ -35,6 +38,11 @@ the same core boundaries in a serverless test environment.
 
 - Node.js `>=22.13.0`
 - Linux with `flock`, `curl`, and GNU `timeout`
+
+The independently deployed agent runtime requires Python 3.12, Git, its locked
+Python dependencies, a long internal bearer token, and one selected LLM provider
+credential. See `docs/langgraph-deployment-credentials.md` for the complete
+conditional credential and infrastructure matrix.
 
 ## Sites Lifecycle
 

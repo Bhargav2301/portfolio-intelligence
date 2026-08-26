@@ -41,6 +41,17 @@ export type Evidence = {
   status: "verified" | "stale" | "conflicting";
 };
 
+export type EvidenceDocument = {
+  id: string;
+  symbol: string | null;
+  filename: string;
+  title: string;
+  publisher: string | null;
+  publishedAt: string | null;
+  sourceHash: string;
+  status: "metadata_only" | "uploaded" | "parsed" | "reviewed" | "rejected";
+};
+
 export type DashboardData = {
   status: "ready";
   portfolio: {
@@ -61,6 +72,7 @@ export type DashboardData = {
   positions: Position[];
   transactions: LedgerTransaction[];
   evidence: Evidence[];
+  documents: EvidenceDocument[];
   valueHistory: Array<{ label: string; value: number }>;
   asOf: string;
   sourceMode: "manual" | "connected" | "demo";
@@ -95,6 +107,51 @@ export type HoldingInput = {
   quantity: number;
   averageCost: number;
   currentPrice: number;
+  analysisSymbol?: string | null;
+};
+
+export type PortfolioImportSource = {
+  kind: "manual" | "csv" | "normalized_json";
+  filename: string | null;
+  sha256: string;
+};
+
+export type HoldingLotInput = {
+  symbol: string;
+  name: string;
+  exchange: string;
+  quantity: number;
+  unitCost: number;
+  acquiredAt: string | null;
+  sourceRowNumber: number | null;
+};
+
+export type NormalizedPortfolioImport = {
+  format: "pi-portfolio-import/v1";
+  portfolioName?: string;
+  baseCurrency?: "INR";
+  source?: {
+    filename?: string;
+    sha256?: string;
+  };
+  holdings: Array<{
+    symbol: string;
+    name: string;
+    exchange: string;
+    quantity: number;
+    average_cost: number;
+    current_price: number;
+    analysis_symbol?: string | null;
+  }>;
+  lots?: Array<{
+    symbol: string;
+    name: string;
+    exchange: string;
+    quantity: number;
+    unit_cost: number;
+    acquired_at: string | null;
+    source_row_number: number | null;
+  }>;
 };
 
 export type ChatResponse = {
