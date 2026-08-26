@@ -1,7 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { ChatResponse, DashboardData, Evidence, HoldingInput, PortfolioResponse, Position, SetupData } from "../lib/types";
+import type {
+  ChatResponse,
+  DashboardData,
+  Evidence,
+  HoldingInput,
+  HoldingLotInput,
+  NormalizedPortfolioImport,
+  PortfolioImportSource,
+  PortfolioResponse,
+  Position,
+  SetupData,
+} from "../lib/types";
 import { AgentDesk } from "./agent-desk";
 
 type View = "overview" | "accounts" | "agents" | "research" | "activity" | "scenario";
@@ -145,7 +156,7 @@ export default function PortfolioApp({ user }: { user: User }) {
         {view === "overview" && <Overview data={dashboard} onViewChange={setView} />}
         {view === "accounts" && <AccountsView data={dashboard} onSync={syncConnectedAccount} />}
         {view === "agents" && <AgentDesk data={dashboard} onRunChange={setAgentRunId} />}
-        {view === "research" && <ResearchView data={dashboard} />}
+        {view === "research" && <ResearchView data={dashboard} onData={setData} onError={setError} />}
         {view === "activity" && <ActivityView data={dashboard} onData={setData} onError={setError} />}
         {view === "scenario" && <ScenarioView data={dashboard} />}
       </main>
@@ -167,6 +178,8 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
   const [method, setMethod] = useState<"choose" | "manual">("choose");
   const [name, setName] = useState("My Portfolio");
   const [holdings, setHoldings] = useState<HoldingInput[]>([emptyHolding()]);
+  const [lots, setLots] = useState<HoldingLotInput[] | undefined>();
+  const [source, setSource] = useState<PortfolioImportSource | undefined>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const upstox = data.connections.find((item) => item.provider === "upstox");
@@ -177,14 +190,14 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
       : holding));
   }
 
-  async function save(mode: "manual" | "demo") {
+  async function save() {
     setBusy(true);
     setError("");
     try {
       const response = await fetch("/api/portfolio", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(mode === "demo" ? { mode } : { mode, name, baseCurrency: "INR", holdings }),
+        body: JSON.stringify({ mode: "manual", name, baseCurrency: "INR", holdings, lots, source }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Unable to create portfolio");
@@ -196,15 +209,33 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
     }
   }
 
-  async function importCsv(file: File) {
+  async function importPortfolioFile(file: File) {
     setError("");
     try {
-      const rows = parseCsv(await file.text());
-      if (!rows.length) throw new Error("The CSV has no holding rows");
+      if (file.size > 2 * 1024 * 1024) throw new Error("Portfolio import files must be 2 MB or smaller");
+      const text = await file.text();
+      const isJson = file.name.toLowerCase().endsWith(".json");
+      const normalized: {
+        holdings: HoldingInput[];
+        lots?: HoldingLotInput[];
+        portfolioName?: string;
+        source?: { filename?: string; sha256?: string };
+      } = isJson ? parseNormalizedImport(text) : { holdings: parseCsv(text) };
+      const rows = normalized.holdings;
+      if (!rows.length) throw new Error("The portfolio file has no holding rows");
       setHoldings(rows);
+      setLots(normalized.lots);
+      if (normalized.portfolioName) setName(normalized.portfolioName);
+      const uploadedHash = await sha256Hex(await file.arrayBuffer());
+      const declaredHash = normalized.source?.sha256;
+      setSource({
+        kind: isJson ? "normalized_json" : "csv",
+        filename: normalized.source?.filename ?? file.name,
+        sha256: declaredHash && /^[a-f0-9]{64}$/i.test(declaredHash) ? declaredHash : uploadedHash,
+      });
       setMethod("manual");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to read CSV");
+      setError(reason instanceof Error ? reason.message : "Unable to read portfolio file");
     }
   }
 
@@ -218,7 +249,7 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
         <div className="setup-intro">
           <p className="eyebrow">First-run setup</p>
           <h1>Bring your portfolio into one trusted view.</h1>
-          <p>Add holdings yourself, import a CSV, or connect a supported broker through its own sign-in screen. PI does not ask for your broker password.</p>
+          <p>Add holdings yourself, import a validated portfolio file, or connect a supported broker through its own sign-in screen. PI does not ask for your broker password.</p>
           <div className="security-strip"><span>Read-only connection</span><span>Encrypted tokens</span><span>No trade execution</span></div>
         </div>
 
@@ -229,18 +260,15 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
               <span className="setup-icon">+</span><span><strong>Add holdings</strong><small>Enter positions and current prices. Best for a quick private test.</small></span><em>Start manually</em>
             </button>
             <label className="setup-card">
-              <span className="setup-icon">CSV</span><span><strong>Import a CSV</strong><small>The file is parsed in your browser; only normalized holdings are saved.</small></span><em>Choose file</em>
-              <input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCsv(file); }} />
+              <span className="setup-icon">FILE</span><span><strong>Import portfolio</strong><small>Use canonical CSV or PI normalized JSON. Review every row before saving.</small></span><em>Choose file</em>
+              <input type="file" accept=".csv,.json,text/csv,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importPortfolioFile(file); }} />
             </label>
             <button className="setup-card" disabled={!upstox?.configured} onClick={() => { location.href = "/api/connections/upstox/start"; }}>
               <span className="setup-icon">U</span><span><strong>Link Upstox</strong><small>{upstox?.detail}</small></span><em>{upstox?.configured ? "Connect securely" : "Pilot configuration required"}</em>
             </button>
-            <button className="setup-card subtle" disabled={busy} onClick={() => void save("demo")}>
-              <span className="setup-icon">D</span><span><strong>Explore with demo data</strong><small>Use fictional holdings to test analysis without adding your own data.</small></span><em>{busy ? "Creating…" : "Load demo"}</em>
-            </button>
           </div>
         ) : (
-          <form className="manual-setup" onSubmit={(event) => { event.preventDefault(); void save("manual"); }}>
+          <form className="manual-setup" onSubmit={(event) => { event.preventDefault(); void save(); }}>
             <div className="manual-heading"><div><button type="button" className="text-button" onClick={() => setMethod("choose")}>← Setup options</button><h2>Portfolio details</h2></div><span>{holdings.length} holding{holdings.length === 1 ? "" : "s"}</span></div>
             <div className="portfolio-fields">
               <label>Portfolio name<input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} required /></label>
@@ -261,9 +289,10 @@ function Onboarding({ data, user, onData }: { data: SetupData; user: User; onDat
               ))}
             </div>
             <div className="manual-actions"><button type="button" className="quiet-button" onClick={() => setHoldings((current) => [...current, emptyHolding()])}>+ Add holding</button><button className="primary-button" disabled={busy} type="submit">{busy ? "Creating tracker…" : "Create portfolio tracker"}</button></div>
+            {source && <p className="setup-disclosure">Staged from {source.filename}. The source SHA-256 and normalized rows will be retained; the raw file will not be stored in D1.</p>}
           </form>
         )}
-        <p className="setup-disclosure">V1 stores the normalized holdings needed for portfolio analytics. Manual prices remain manual until updated; linked account data shows its last successful sync time.</p>
+        <p className="setup-disclosure">Legacy XLS files must first pass through the PI normalizer; financial PDFs are evidence sources, not holdings. V1 stores normalized rows and source hashes. Manual prices remain manual until updated; linked account data shows its last successful sync time.</p>
       </section>
     </main>
   );
@@ -302,6 +331,51 @@ function parseCsv(input: string): HoldingInput[] {
     averageCost: Number(values[header.indexOf("average_cost")]),
     currentPrice: Number(values[header.indexOf("current_price")]),
   }));
+}
+
+function parseNormalizedImport(input: string): {
+  holdings: HoldingInput[];
+  lots?: HoldingLotInput[];
+  portfolioName?: string;
+  source?: { filename?: string; sha256?: string };
+} {
+  let parsed: NormalizedPortfolioImport;
+  try {
+    parsed = JSON.parse(input) as NormalizedPortfolioImport;
+  } catch {
+    throw new Error("The normalized import is not valid JSON");
+  }
+  if (parsed.format !== "pi-portfolio-import/v1" || !Array.isArray(parsed.holdings)) {
+    throw new Error("JSON imports must use the pi-portfolio-import/v1 format");
+  }
+  if (parsed.holdings.length > 100) throw new Error("Portfolio imports support up to 100 holdings");
+  return {
+    portfolioName: parsed.portfolioName,
+    source: parsed.source,
+    holdings: parsed.holdings.map((holding) => ({
+      symbol: String(holding.symbol ?? ""),
+      name: String(holding.name ?? ""),
+      exchange: String(holding.exchange ?? ""),
+      quantity: Number(holding.quantity),
+      averageCost: Number(holding.average_cost),
+      currentPrice: Number(holding.current_price),
+      analysisSymbol: holding.analysis_symbol ? String(holding.analysis_symbol) : null,
+    })),
+    lots: parsed.lots?.map((lot) => ({
+      symbol: String(lot.symbol ?? ""),
+      name: String(lot.name ?? ""),
+      exchange: String(lot.exchange ?? ""),
+      quantity: Number(lot.quantity),
+      unitCost: Number(lot.unit_cost),
+      acquiredAt: lot.acquired_at ? String(lot.acquired_at) : null,
+      sourceRowNumber: lot.source_row_number === null ? null : Number(lot.source_row_number),
+    })),
+  };
+}
+
+async function sha256Hex(input: ArrayBuffer) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", input));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function AccountsView({ data, onSync }: { data: DashboardData; onSync: () => Promise<void> }) {
@@ -466,15 +540,73 @@ function HoldingsTable({ positions }: { positions: Position[] }) {
   );
 }
 
-function ResearchView({ data }: { data: DashboardData }) {
+function ResearchView({ data, onData, onError }: {
+  data: DashboardData;
+  onData: (data: DashboardData) => void;
+  onError: (error: string) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [symbol, setSymbol] = useState(data.positions[0]?.symbol ?? "");
+  const [title, setTitle] = useState("");
+  const [publisher, setPublisher] = useState("");
+  const [publishedAt, setPublishedAt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function register(event: FormEvent) {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    onError("");
+    try {
+      if (file.size > 20 * 1024 * 1024) throw new Error("Evidence PDFs must be 20 MB or smaller");
+      const response = await fetch("/api/evidence-documents", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: "application/pdf",
+          sourceHash: await sha256Hex(await file.arrayBuffer()),
+          symbol,
+          title,
+          publisher,
+          publishedAt: publishedAt || null,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Unable to register evidence");
+      onData(payload as DashboardData);
+      setFile(null);
+      setTitle("");
+      setPublisher("");
+      setPublishedAt("");
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Unable to register evidence");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="view-stack">
       <section className="research-summary">
         <div><p className="eyebrow">Provenance health</p><h2>Every claim needs a source</h2><p>The test release stores source tier, publication time, retrieval time, and a content hash before evidence can support an explanation.</p></div>
         <div className="coverage-score"><strong>{data.metrics.evidenceCoverage.toFixed(0)}</strong><span>% coverage</span></div>
       </section>
+      <form className="panel evidence-intake" onSubmit={register}>
+        <div className="panel-heading"><div><p className="eyebrow">Manual evidence intake</p><h2>Register a research PDF</h2></div><span className="audit-chip">Metadata only</span></div>
+        <p>PI hashes the file in your browser and stores its metadata. The raw PDF is not uploaded to D1; content remains unverified until private document storage and parsing are enabled.</p>
+        <div className="evidence-form">
+          <label>PDF file<input type="file" accept=".pdf,application/pdf" onChange={(event) => { const selected = event.target.files?.[0] ?? null; setFile(selected); if (selected && !title) setTitle(selected.name.replace(/\.pdf$/i, "")); }} required /></label>
+          <label>Holding<select value={symbol} onChange={(event) => setSymbol(event.target.value)} required>{data.positions.map((position) => <option key={position.symbol} value={position.symbol}>{position.symbol}</option>)}</select></label>
+          <label>Title<input value={title} maxLength={200} onChange={(event) => setTitle(event.target.value)} required /></label>
+          <label>Publisher<input value={publisher} maxLength={120} onChange={(event) => setPublisher(event.target.value)} required /></label>
+          <label>Publication date<input type="date" value={publishedAt} onChange={(event) => setPublishedAt(event.target.value)} /></label>
+          <button className="primary-button" disabled={!file || busy} type="submit">{busy ? "Registering…" : "Register source"}</button>
+        </div>
+      </form>
+      {data.documents.length > 0 && <section className="panel document-register"><div className="panel-heading"><div><p className="eyebrow">Pending evidence</p><h2>Registered source files</h2></div><span>{data.documents.length} documents</span></div><div className="document-list">{data.documents.map((document) => <article key={document.id}><div><strong>{document.symbol} · {document.title}</strong><span>{document.publisher}{document.publishedAt ? ` · ${formatDate(document.publishedAt)}` : ""}</span></div><div><span className="warning-chip">{document.status.replaceAll("_", " ")}</span><small>SHA-256 {document.sourceHash.slice(0, 12)}…</small></div></article>)}</div></section>}
       <section className="evidence-grid">
-        {data.evidence.length === 0 && <article className="empty-evidence"><strong>No research evidence attached yet</strong><p>Your holdings tracker is ready. Evidence coverage remains at zero until verified source records are connected.</p></article>}
+        {data.evidence.length === 0 && <article className="empty-evidence"><strong>No verified research evidence yet</strong><p>Registered PDF metadata does not increase evidence coverage. A source must be parsed, reviewed, and verified first.</p></article>}
         {data.evidence.map((item) => (
           <article className="evidence-card" key={item.id}>
             <div className="evidence-meta"><span className="verified-badge">Verified</span><span>Tier {item.sourceTier}</span><span>{formatDate(item.publishedAt)}</span></div>
@@ -485,7 +617,7 @@ function ResearchView({ data }: { data: DashboardData }) {
           </article>
         ))}
       </section>
-      <div className="disclosure-card"><strong>{data.sourceMode === "demo" ? "Demo evidence only" : "Evidence pilot"}</strong><p>{data.sourceMode === "demo" ? "These fictional source records demonstrate the evidence-gating workflow. They are not live filings, news, research, or an invitation to invest." : "Portfolio values may be current while the research evidence feed remains a limited pilot. Source timestamps are shown explicitly."}</p></div>
+      <div className="disclosure-card"><strong>Evidence pilot</strong><p>Portfolio values may be current while source documents remain metadata-only. Agent claims cannot cite those files until review changes their status to verified evidence.</p></div>
     </div>
   );
 }

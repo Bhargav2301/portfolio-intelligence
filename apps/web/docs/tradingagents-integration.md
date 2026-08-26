@@ -115,15 +115,15 @@ The supplied `Qber-Aug2026.xls` demonstrates why ingestion requires staging. Its
 rows. Stock identity embeds exchange and a quote timestamp; quantities may contain
 thousands separators; the same instrument appears on multiple acquisition dates.
 
-The production importer therefore uses these stages:
+The V1 normalizer and import ledger use these stages:
 
-1. Parse locally into `import_rows`; do not write holdings yet.
+1. Parse locally into a normalized `pi-portfolio-import/v1` document; do not write holdings yet.
 2. Classify lot, allocation-only, total, blank, and invalid rows.
 3. Normalize stock name, exchange, quote timestamp, quantity, cost, and price.
 4. Aggregate lots by confirmed `(exchange, symbol)` while preserving each lot.
 5. Reconcile investment amount, market value, total quantity, and allocation sum.
-6. Present conflicts and require the owner to choose the authoritative file.
-7. Commit one immutable import event plus normalized lot/holding records.
+6. Present the normalized rows for owner review; conflicting source files remain blocked.
+7. Commit one immutable import event plus normalized lot/holding records after confirmation.
 
 PDFs are evidence candidates only. Their text is untrusted content, cannot set
 policy, and cannot mutate holdings.
@@ -178,10 +178,11 @@ they must not be delegated to an LLM node.
 
 ### Ingestion mode
 
-The setup screen supports manual holdings, browser-parsed canonical CSV, and
-read-only Upstox OAuth. The next slice adds staged legacy-XLS ingestion with lot
-aggregation and file reconciliation. Broker passwords are never collected; access
-tokens are encrypted at rest and remain server-side.
+The setup screen supports manual holdings, browser-parsed canonical CSV, reviewed
+normalized JSON, and read-only Upstox OAuth. A deterministic Python normalizer
+converts the supplied legacy XLS export, preserves 89 source tax lots, reconciles
+totals, and refuses unmapped instruments. Broker passwords are never collected;
+access tokens are encrypted at rest and remain server-side.
 
 ### Review mode
 
@@ -281,6 +282,8 @@ and “PI policy status.” Run history becomes durable before multi-user launch
 - Status, run, event, WebSocket, and grounded run-chat APIs.
 - Agent desk with readiness, symbol selection, live activity, results, and policy.
 - Server-only Sites bridge and explicit unconfigured/offline states.
+- Demo-data purge, source-hashed import ledger, tax-lot persistence, XLS normalizer,
+  and metadata-only PDF intake.
 
 Gate: build/tests pass; runtime cannot execute trades; UI does not fake an online
 runtime; missing/stale mappings block analysis.
@@ -291,7 +294,8 @@ runtime; missing/stale mappings block analysis.
 - Add Postgres run/evidence store and Redis Streams queue.
 - Run one graph per process with idempotent symbol jobs, cancellation, timeouts, and
   cost/rate budgets.
-- Add staged XLS importer, source-file reconciliation, lot ledger, and snapshot diff.
+- Add private object storage, server-side upload processing, multi-file conflict
+  reconciliation, and snapshot diff.
 - Persist editable owner policy and weekly schedule.
 
 Gate: restart-safe run history, reconciliation tests on supplied workbook, provider

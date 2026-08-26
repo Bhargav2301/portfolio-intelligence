@@ -34,3 +34,20 @@ validated `X-PI-Owner-Email` injected by the PI server. For development only,
 Run exactly one Uvicorn worker per container. TradingAgents sets global runtime
 configuration, so horizontal scale must use separate containers/processes rather
 than concurrent graphs with different configuration in one process.
+
+## Legacy portfolio normalization
+
+The supplied legacy XLS format is normalized outside LLM nodes. This is a
+deterministic LangGraph boundary service: it classifies rows, preserves tax lots,
+requires confirmed instrument mappings, reconciles totals, and emits a
+`pi-portfolio-import/v1` JSON document that the Sites onboarding screen can review
+and commit.
+
+```bash
+pi-normalize-portfolio Qber-Aug2026.xls --portfolio-name "D1 Portfolio" > Qber-Aug2026.normalized.json
+```
+
+No raw workbook or PDF is written to D1. The web application stores only the
+normalized rows, source SHA-256, and import audit metadata. PDFs remain evidence
+candidates until private object storage and owner-scoped document review are
+enabled.

@@ -2,8 +2,11 @@ import type {
   BrokerConnection,
   DashboardData,
   Evidence,
+  EvidenceDocument,
   HoldingInput,
+  HoldingLotInput,
   LedgerTransaction,
+  PortfolioImportSource,
   PortfolioResponse,
   Position,
 } from "./types";
@@ -72,7 +75,7 @@ type RawInstrumentMapping = {
 };
 
 const DEMO_EMAIL = "demo.user@portfolio.local";
-const DEMO_AS_OF = "2026-08-13T05:00:00.000Z";
+const EMPTY_AS_OF = "1970-01-01T00:00:00.000Z";
 
 function database() {
   if (!globalThis.__PI_DB) throw new Error("Portfolio database is unavailable");
@@ -212,44 +215,96 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS instrument_mappings_owner_idx
       ON instrument_mappings(owner_email, portfolio_id, symbol)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS import_batches (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      portfolio_id TEXT,
+      source_kind TEXT NOT NULL CHECK(source_kind IN ('manual','csv','normalized_json','xls','pdf','broker')),
+      source_filename TEXT,
+      source_hash TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('staged','validated','committed','rejected')),
+      row_count INTEGER NOT NULL,
+      valid_row_count INTEGER NOT NULL,
+      warning_count INTEGER NOT NULL DEFAULT 0,
+      error_count INTEGER NOT NULL DEFAULT 0,
+      raw_retained INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      committed_at TEXT,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      UNIQUE(owner_email, source_hash)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS import_batches_owner_created_idx
+      ON import_batches(owner_email, created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS import_rows (
+      id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      row_number INTEGER NOT NULL,
+      row_kind TEXT NOT NULL CHECK(row_kind IN ('holding','lot','evidence','summary','blank','invalid')),
+      raw_json TEXT,
+      normalized_json TEXT,
+      validation_status TEXT NOT NULL CHECK(validation_status IN ('valid','warning','error','skipped')),
+      validation_message TEXT,
+      FOREIGN KEY(batch_id) REFERENCES import_batches(id),
+      UNIQUE(batch_id, row_number)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS import_rows_batch_status_idx
+      ON import_rows(batch_id, validation_status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS portfolio_lots (
+      id TEXT PRIMARY KEY,
+      portfolio_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      import_batch_id TEXT,
+      symbol TEXT NOT NULL,
+      exchange TEXT NOT NULL,
+      instrument_name TEXT NOT NULL,
+      quantity REAL NOT NULL CHECK(quantity > 0),
+      unit_cost REAL NOT NULL CHECK(unit_cost >= 0),
+      acquired_at TEXT,
+      source_row_number INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      FOREIGN KEY(import_batch_id) REFERENCES import_batches(id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS portfolio_lots_owner_portfolio_symbol_idx
+      ON portfolio_lots(owner_email, portfolio_id, symbol)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS portfolio_lots_import_batch_idx
+      ON portfolio_lots(import_batch_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS evidence_documents (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      portfolio_id TEXT,
+      import_batch_id TEXT,
+      source_filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      symbol TEXT,
+      title TEXT NOT NULL,
+      publisher TEXT,
+      published_at TEXT,
+      storage_key TEXT,
+      status TEXT NOT NULL CHECK(status IN ('metadata_only','uploaded','parsed','reviewed','rejected')),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      FOREIGN KEY(import_batch_id) REFERENCES import_batches(id),
+      UNIQUE(owner_email, source_hash)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS evidence_documents_owner_portfolio_idx
+      ON evidence_documents(owner_email, portfolio_id)`),
   ]);
 }
 
-function marketDataSymbol(exchange: string, symbol: string) {
+function marketDataSymbol(exchange: string, symbol: string, explicit?: string | null) {
+  if (explicit) {
+    const normalized = explicit.trim().toUpperCase();
+    if (exchange === "NSE" && normalized.endsWith(".NS")) return normalized;
+    if (exchange === "BSE" && normalized.endsWith(".BO")) return normalized;
+    if ((exchange === "NASDAQ" || exchange === "NYSE") && !normalized.includes(".")) return normalized;
+    return null;
+  }
   if (exchange === "NSE") return `${symbol}.NS`;
-  if (exchange === "BSE") return `${symbol}.BO`;
+  if (exchange === "BSE") return null;
   if (exchange === "NASDAQ" || exchange === "NYSE") return symbol;
   return null;
-}
-
-async function seedReferenceData() {
-  const db = database();
-  await db.batch([
-    db.prepare(`INSERT OR IGNORE INTO prices
-      (symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("NOVA", "Nova Systems Ltd.", 1628.4, 1601.2, "Demo exchange snapshot", "https://example.com/demo/nova/quote", DEMO_AS_OF, "INR"),
-    db.prepare(`INSERT OR IGNORE INTO prices
-      (symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("AETH", "Aether Renewables Ltd.", 842.15, 851.75, "Demo exchange snapshot", "https://example.com/demo/aeth/quote", DEMO_AS_OF, "INR"),
-    db.prepare(`INSERT OR IGNORE INTO prices
-      (symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("SESH", "Seshadri Consumer Ltd.", 2364.8, 2328.6, "Demo exchange snapshot", "https://example.com/demo/sesh/quote", DEMO_AS_OF, "INR"),
-    db.prepare(`INSERT OR IGNORE INTO evidence_items
-      (id, symbol, title, publisher, source_tier, source_uri, published_at, retrieved_at, content_hash, summary, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("ev-nova-q1", "NOVA", "Q1 operating update", "Demo Exchange", 1, "https://example.com/demo/nova/q1", "2026-08-12T10:00:00.000Z", DEMO_AS_OF, "026c7ce45b731decd733b3fe6337e3e977a0a32037985844b023764673a76038", "Revenue growth remained positive while operating margin narrowed slightly.", "verified"),
-    db.prepare(`INSERT OR IGNORE INTO evidence_items
-      (id, symbol, title, publisher, source_tier, source_uri, published_at, retrieved_at, content_hash, summary, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("ev-aeth-order", "AETH", "Material project award", "Demo Exchange", 1, "https://example.com/demo/aeth/order", "2026-08-11T08:30:00.000Z", DEMO_AS_OF, "e347a2e7c907258bef4648f23b56e06db5d58f4e5c3e8a0b5de0ce3da33c863d", "The company disclosed a new renewable infrastructure order with phased execution.", "verified"),
-    db.prepare(`INSERT OR IGNORE INTO evidence_items
-      (id, symbol, title, publisher, source_tier, source_uri, published_at, retrieved_at, content_hash, summary, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind("ev-sesh-results", "SESH", "Audited quarterly results", "Demo Exchange", 1, "https://example.com/demo/sesh/results", "2026-08-10T12:15:00.000Z", DEMO_AS_OF, "08dd64e5944a9ed10f49c07499980790774931745ff63acebe7cbfc5ccf01b19", "Audited results showed stable demand and improved cash conversion.", "verified"),
-  ]);
 }
 
 function connectorConfig() {
@@ -488,35 +543,6 @@ export async function getConnections(ownerEmail: string): Promise<BrokerConnecti
   });
 }
 
-async function ensureDemoPortfolio(ownerEmail: string) {
-  await ensureSchema();
-  await seedReferenceData();
-  const db = database();
-  const existing = await db.prepare(
-    "SELECT id FROM portfolios WHERE owner_email = ? ORDER BY created_at LIMIT 1",
-  ).bind(ownerEmail).first<{ id: string }>();
-  if (existing) return existing.id;
-
-  const portfolioId = crypto.randomUUID();
-  const createdAt = new Date().toISOString();
-  await db.prepare(
-    "INSERT INTO portfolios (id, owner_email, name, base_currency, is_demo, created_at) VALUES (?, ?, ?, 'INR', 1, ?)",
-  ).bind(portfolioId, ownerEmail, "India Growth Demo", createdAt).run();
-
-  const seeds = [
-    ["NOVA", "Nova Systems Ltd.", 80, 1450, 120, "2026-05-06T05:00:00.000Z"],
-    ["AETH", "Aether Renewables Ltd.", 120, 895, 180, "2026-05-21T05:00:00.000Z"],
-    ["SESH", "Seshadri Consumer Ltd.", 50, 2180, 150, "2026-06-03T05:00:00.000Z"],
-  ] as const;
-  await db.batch(seeds.map(([symbol, name, quantity, price, fees, occurredAt], index) =>
-    db.prepare(`INSERT INTO transactions
-      (id, portfolio_id, owner_email, symbol, instrument_name, transaction_type, quantity, unit_price, fees, occurred_at, idempotency_key, created_at)
-      VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), portfolioId, ownerEmail, symbol, name, quantity, price, fees, occurredAt, `seed-${portfolioId}-${index}`, createdAt),
-  ));
-  return portfolioId;
-}
-
 async function loadTransactions(ownerEmail: string, portfolioId: string) {
   const result = await database().prepare(`SELECT id, portfolio_id, symbol, instrument_name,
     transaction_type, quantity, unit_price, fees, occurred_at, reverses_transaction_id, created_at
@@ -572,7 +598,7 @@ function foldPositions(transactions: RawTransaction[], prices: Map<string, RawPr
       returnPercent: value.costBasis ? (unrealizedGain / value.costBasis) * 100 : 0,
       allocationPercent: 0,
       priceSource: price?.source_label ?? "No current price",
-      priceAsOf: price?.as_of ?? DEMO_AS_OF,
+      priceAsOf: price?.as_of ?? EMPTY_AS_OF,
     } satisfies Position;
   });
   const totalValue = preliminary.reduce((sum, position) => sum + position.marketValue, 0);
@@ -655,12 +681,11 @@ export async function getPortfolioResponse(ownerEmail: string): Promise<Portfoli
 
 export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
   await ensureSchema();
-  await seedReferenceData();
   const db = database();
   const portfolio = await firstPortfolio(ownerEmail);
   if (!portfolio) throw new Error("PORTFOLIO_SETUP_REQUIRED");
   const portfolioId = portfolio.id;
-  const [priceResult, evidenceResult, transactions, accountHoldingResult, mappingResult, connections] = await Promise.all([
+  const [priceResult, evidenceResult, transactions, accountHoldingResult, mappingResult, connections, documentResult] = await Promise.all([
     portfolio.is_demo
       ? db.prepare("SELECT * FROM prices ORDER BY symbol").all<RawPrice>()
       : db.prepare(`SELECT symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency
@@ -675,6 +700,19 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
       WHERE owner_email = ? AND portfolio_id = ? ORDER BY symbol`)
       .bind(ownerEmail, portfolioId).all<RawInstrumentMapping>(),
     getConnections(ownerEmail),
+    db.prepare(`SELECT id, symbol, source_filename, source_hash, title, publisher,
+        published_at, status FROM evidence_documents
+      WHERE owner_email = ? AND portfolio_id = ? ORDER BY created_at DESC`)
+      .bind(ownerEmail, portfolioId).all<{
+        id: string;
+        symbol: string | null;
+        source_filename: string;
+        source_hash: string;
+        title: string;
+        publisher: string | null;
+        published_at: string | null;
+        status: EvidenceDocument["status"];
+      }>(),
   ]);
 
   const prices = new Map(priceResult.results.map((price) => [price.symbol, price]));
@@ -711,6 +749,16 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     summary: item.summary,
     status: item.status,
   }));
+  const documents: EvidenceDocument[] = documentResult.results.map((item) => ({
+    id: item.id,
+    symbol: item.symbol,
+    filename: item.source_filename,
+    title: item.title,
+    publisher: item.publisher,
+    publishedAt: item.published_at,
+    sourceHash: item.source_hash,
+    status: item.status,
+  }));
   const reversedIds = new Set(transactions.filter((row) => row.transaction_type === "reversal")
     .map((row) => row.reverses_transaction_id).filter((id): id is string => Boolean(id)));
   const ledger: LedgerTransaction[] = [...transactions].reverse().map((row) => ({
@@ -744,10 +792,11 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     positions,
     transactions: ledger,
     evidence,
+    documents,
     valueHistory: portfolio.is_demo
       ? labels.map((label, index) => ({ label, value: totalValue * historyMultipliers[index] }))
       : [{ label: "Current", value: totalValue }],
-    asOf: positions.reduce((latest, position) => position.priceAsOf > latest ? position.priceAsOf : latest, DEMO_AS_OF),
+    asOf: positions.reduce((latest, position) => position.priceAsOf > latest ? position.priceAsOf : latest, EMPTY_AS_OF),
     sourceMode: accountHoldingResult.results.length ? "connected" : portfolio.is_demo ? "demo" : "manual",
     connections,
     agentPolicy: {
@@ -770,13 +819,39 @@ function cleanHolding(input: HoldingInput, index: number): HoldingInput {
   if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error(`${symbol}: quantity must be positive`);
   if (!Number.isFinite(input.averageCost) || input.averageCost < 0) throw new Error(`${symbol}: average cost cannot be negative`);
   if (!Number.isFinite(input.currentPrice) || input.currentPrice < 0) throw new Error(`${symbol}: current price cannot be negative`);
-  return { symbol, name, exchange, quantity: input.quantity, averageCost: input.averageCost, currentPrice: input.currentPrice };
+  const analysisSymbol = input.analysisSymbol?.trim().toUpperCase() || null;
+  if (analysisSymbol && !marketDataSymbol(exchange, symbol, analysisSymbol)) {
+    throw new Error(`${symbol}: analysis symbol does not match the exchange`);
+  }
+  return { symbol, name, exchange, quantity: input.quantity, averageCost: input.averageCost, currentPrice: input.currentPrice, analysisSymbol };
+}
+
+function cleanLot(input: HoldingLotInput, index: number): HoldingLotInput {
+  const symbol = input.symbol.trim().toUpperCase();
+  const name = input.name.trim();
+  const exchange = input.exchange.trim().toUpperCase();
+  if (!symbol || !name || !exchange) throw new Error(`Lot ${index + 1} is missing identity fields`);
+  if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new Error(`${symbol}: lot quantity must be positive`);
+  if (!Number.isFinite(input.unitCost) || input.unitCost < 0) throw new Error(`${symbol}: lot cost cannot be negative`);
+  let acquiredAt: string | null = null;
+  if (input.acquiredAt) {
+    const parsed = new Date(input.acquiredAt);
+    if (Number.isNaN(parsed.getTime())) throw new Error(`${symbol}: lot acquisition date is invalid`);
+    acquiredAt = parsed.toISOString();
+  }
+  const sourceRowNumber = input.sourceRowNumber === null ? null : Number(input.sourceRowNumber);
+  if (sourceRowNumber !== null && (!Number.isInteger(sourceRowNumber) || sourceRowNumber < 1)) {
+    throw new Error(`${symbol}: source row number is invalid`);
+  }
+  return { symbol, name, exchange, quantity: input.quantity, unitCost: input.unitCost, acquiredAt, sourceRowNumber };
 }
 
 export async function createManualPortfolio(ownerEmail: string, input: {
   name: string;
   baseCurrency: "INR";
   holdings: HoldingInput[];
+  lots?: HoldingLotInput[];
+  source?: PortfolioImportSource;
 }) {
   await ensureSchema();
   if (await firstPortfolio(ownerEmail)) throw new Error("A portfolio already exists for this account");
@@ -790,25 +865,58 @@ export async function createManualPortfolio(ownerEmail: string, input: {
     if (symbols.has(key)) throw new Error(`${holding.symbol} appears more than once`);
     symbols.add(key);
   }
+  const lots = input.lots?.map(cleanLot);
+  if (lots && (lots.length < holdings.length || lots.length > 1000)) {
+    throw new Error("Normalized imports must contain between one and 1,000 lots per holding set");
+  }
+  if (lots) {
+    const aggregates = new Map<string, { quantity: number; cost: number }>();
+    for (const lot of lots) {
+      const key = `${lot.exchange}:${lot.symbol}`;
+      if (!symbols.has(key)) throw new Error(`${lot.symbol}: lot is absent from normalized holdings`);
+      const current = aggregates.get(key) ?? { quantity: 0, cost: 0 };
+      current.quantity += lot.quantity;
+      current.cost += lot.quantity * lot.unitCost;
+      aggregates.set(key, current);
+    }
+    for (const holding of holdings) {
+      const aggregate = aggregates.get(`${holding.exchange}:${holding.symbol}`);
+      if (!aggregate || Math.abs(aggregate.quantity - holding.quantity) > 1e-6) {
+        throw new Error(`${holding.symbol}: lot quantities do not reconcile to the holding`);
+      }
+      const weightedCost = aggregate.cost / aggregate.quantity;
+      if (Math.abs(weightedCost - holding.averageCost) > 0.05) {
+        throw new Error(`${holding.symbol}: lot costs do not reconcile to average cost`);
+      }
+    }
+  }
 
   const db = database();
   const portfolioId = crypto.randomUUID();
+  const importBatchId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const source = input.source ?? {
+    kind: "manual" as const,
+    filename: null,
+    sha256: await sha256(JSON.stringify(holdings)),
+  };
+  if (!/^[a-f0-9]{64}$/i.test(source.sha256)) throw new Error("Import source hash must be SHA-256");
+  if (source.filename && source.filename.length > 255) throw new Error("Import filename is too long");
   const statements: D1PreparedStatement[] = [
     db.prepare(`INSERT INTO portfolios
       (id, owner_email, name, base_currency, is_demo, created_at)
       VALUES (?, ?, ?, ?, 0, ?)`)
       .bind(portfolioId, ownerEmail, name, input.baseCurrency, now),
+    db.prepare(`INSERT INTO import_batches
+      (id, owner_email, portfolio_id, source_kind, source_filename, source_hash, status,
+       row_count, valid_row_count, warning_count, error_count, raw_retained, created_at, committed_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'committed', ?, ?, 0, 0, 0, ?, ?)`)
+      .bind(importBatchId, ownerEmail, portfolioId, source.kind, source.filename,
+        source.sha256.toLowerCase(), lots?.length ?? holdings.length, lots?.length ?? holdings.length, now, now),
   ];
   holdings.forEach((holding, index) => {
-    const analysisSymbol = marketDataSymbol(holding.exchange, holding.symbol);
+    const analysisSymbol = marketDataSymbol(holding.exchange, holding.symbol, holding.analysisSymbol);
     statements.push(
-      db.prepare(`INSERT INTO transactions
-        (id, portfolio_id, owner_email, symbol, instrument_name, transaction_type,
-         quantity, unit_price, fees, occurred_at, idempotency_key, created_at)
-        VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, 0, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), portfolioId, ownerEmail, holding.symbol, holding.name,
-          holding.quantity, holding.averageCost, now, `setup-${portfolioId}-${index}`, now),
       db.prepare(`INSERT INTO portfolio_prices
         (id, portfolio_id, owner_email, symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'User-provided price', ?, ?, ?)
@@ -824,14 +932,114 @@ export async function createManualPortfolio(ownerEmail: string, input: {
         .bind(crypto.randomUUID(), portfolioId, ownerEmail, holding.symbol, holding.exchange, analysisSymbol,
           analysisSymbol ? "confirmed" : "unresolved", now),
     );
+    if (!lots) {
+      statements.push(
+        db.prepare(`INSERT INTO transactions
+          (id, portfolio_id, owner_email, symbol, instrument_name, transaction_type,
+           quantity, unit_price, fees, occurred_at, idempotency_key, created_at)
+          VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, 0, ?, ?, ?)`)
+          .bind(crypto.randomUUID(), portfolioId, ownerEmail, holding.symbol, holding.name,
+            holding.quantity, holding.averageCost, now, `setup-${portfolioId}-${index}`, now),
+        db.prepare(`INSERT INTO import_rows
+          (id, batch_id, row_number, row_kind, raw_json, normalized_json, validation_status, validation_message)
+          VALUES (?, ?, ?, 'holding', NULL, ?, 'valid', NULL)`)
+          .bind(crypto.randomUUID(), importBatchId, index + 1, JSON.stringify(holding)),
+        db.prepare(`INSERT INTO portfolio_lots
+          (id, portfolio_id, owner_email, import_batch_id, symbol, exchange, instrument_name,
+           quantity, unit_cost, acquired_at, source_row_number, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
+          .bind(crypto.randomUUID(), portfolioId, ownerEmail, importBatchId, holding.symbol,
+            holding.exchange, holding.name, holding.quantity, holding.averageCost, index + 1, now),
+      );
+    }
+  });
+  lots?.forEach((lot, index) => {
+    const occurredAt = lot.acquiredAt ?? now;
+    const sourceRow = lot.sourceRowNumber ?? index + 1;
+    statements.push(
+      db.prepare(`INSERT INTO transactions
+        (id, portfolio_id, owner_email, symbol, instrument_name, transaction_type,
+         quantity, unit_price, fees, occurred_at, idempotency_key, created_at)
+        VALUES (?, ?, ?, ?, ?, 'buy', ?, ?, 0, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), portfolioId, ownerEmail, lot.symbol, lot.name,
+          lot.quantity, lot.unitCost, occurredAt, `import-${importBatchId}-${sourceRow}-${index}`, now),
+      db.prepare(`INSERT INTO import_rows
+        (id, batch_id, row_number, row_kind, raw_json, normalized_json, validation_status, validation_message)
+        VALUES (?, ?, ?, 'lot', NULL, ?, 'valid', NULL)`)
+        .bind(crypto.randomUUID(), importBatchId, index + 1, JSON.stringify(lot)),
+      db.prepare(`INSERT INTO portfolio_lots
+        (id, portfolio_id, owner_email, import_batch_id, symbol, exchange, instrument_name,
+         quantity, unit_cost, acquired_at, source_row_number, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), portfolioId, ownerEmail, importBatchId, lot.symbol,
+          lot.exchange, lot.name, lot.quantity, lot.unitCost, lot.acquiredAt, sourceRow, now),
+    );
   });
   await db.batch(statements);
   return getDashboard(ownerEmail);
 }
 
-export async function createDemoPortfolio(ownerEmail: string) {
-  if (await firstPortfolio(ownerEmail)) throw new Error("A portfolio already exists for this account");
-  await ensureDemoPortfolio(ownerEmail);
+export async function registerEvidenceDocument(ownerEmail: string, input: {
+  filename: string;
+  mimeType: string;
+  sourceHash: string;
+  symbol: string;
+  title: string;
+  publisher: string;
+  publishedAt: string | null;
+}) {
+  await ensureSchema();
+  const portfolio = await firstPortfolio(ownerEmail);
+  if (!portfolio) throw new Error("Complete portfolio setup first");
+  const filename = input.filename.trim();
+  const sourceHash = input.sourceHash.trim().toLowerCase();
+  const symbol = input.symbol.trim().toUpperCase();
+  const title = input.title.trim();
+  const publisher = input.publisher.trim();
+  if (!filename || filename.length > 255 || !filename.toLowerCase().endsWith(".pdf")) {
+    throw new Error("Choose a PDF filename of 255 characters or fewer");
+  }
+  if (input.mimeType !== "application/pdf") throw new Error("Evidence files must be PDFs");
+  if (!/^[a-f0-9]{64}$/.test(sourceHash)) throw new Error("Evidence source hash must be SHA-256");
+  if (!title || title.length > 200) throw new Error("Enter an evidence title of 200 characters or fewer");
+  if (!publisher || publisher.length > 120) throw new Error("Enter a publisher of 120 characters or fewer");
+  const mapped = await database().prepare(`SELECT 1 AS present FROM instrument_mappings
+      WHERE owner_email = ? AND portfolio_id = ? AND symbol = ? LIMIT 1`)
+    .bind(ownerEmail, portfolio.id, symbol).first<{ present: number }>();
+  if (!mapped) throw new Error("Choose a symbol in this portfolio");
+  let publishedAt: string | null = null;
+  if (input.publishedAt) {
+    const parsed = new Date(input.publishedAt);
+    if (Number.isNaN(parsed.getTime())) throw new Error("Enter a valid publication date");
+    publishedAt = parsed.toISOString();
+  }
+  const duplicate = await database().prepare(`SELECT id FROM evidence_documents
+      WHERE owner_email = ? AND source_hash = ? LIMIT 1`)
+    .bind(ownerEmail, sourceHash).first<{ id: string }>();
+  if (duplicate) throw new Error("This evidence file is already registered");
+
+  const now = new Date().toISOString();
+  const batchId = crypto.randomUUID();
+  const documentId = crypto.randomUUID();
+  const normalized = { filename, mimeType: input.mimeType, sourceHash, symbol, title, publisher, publishedAt };
+  await database().batch([
+    database().prepare(`INSERT INTO import_batches
+      (id, owner_email, portfolio_id, source_kind, source_filename, source_hash, status,
+       row_count, valid_row_count, warning_count, error_count, raw_retained, created_at, committed_at)
+      VALUES (?, ?, ?, 'pdf', ?, ?, 'validated', 1, 1, 1, 0, 0, ?, NULL)`)
+      .bind(batchId, ownerEmail, portfolio.id, filename, sourceHash, now),
+    database().prepare(`INSERT INTO import_rows
+      (id, batch_id, row_number, row_kind, raw_json, normalized_json, validation_status, validation_message)
+      VALUES (?, ?, 1, 'evidence', NULL, ?, 'warning', ?)`)
+      .bind(crypto.randomUUID(), batchId, JSON.stringify(normalized),
+        "Metadata registered; raw PDF content has not been uploaded, parsed, or verified"),
+    database().prepare(`INSERT INTO evidence_documents
+      (id, owner_email, portfolio_id, import_batch_id, source_filename, mime_type,
+       source_hash, symbol, title, publisher, published_at, storage_key, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'metadata_only', ?)`)
+      .bind(documentId, ownerEmail, portfolio.id, batchId, filename, input.mimeType,
+        sourceHash, symbol, title, publisher, publishedAt, now),
+  ]);
   return getDashboard(ownerEmail);
 }
 
