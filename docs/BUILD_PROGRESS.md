@@ -6,6 +6,13 @@ This file is updated with the README as implementation changes.
 
 ## Current milestone: clean foundation and first vertical slice
 
+### Validation baseline
+
+- 13 Core API tests cover goal math, file safety, duplicate quarantine, and tenant isolation.
+- 5 agent tests cover execution suppression, data-quality gating, hard rules, and the complete safe-mode graph.
+- CI compiles both Python services, builds the optimized web application, and scans the tree for execution capabilities and committed secrets.
+- The stack smoke gate builds every application container and exercises the browser proxy, PostgreSQL, MinIO quarantine, file upload, and bounded agent response.
+
 ### Implemented
 
 - Clean monorepo layout.
