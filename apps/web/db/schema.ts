@@ -52,3 +52,74 @@ export const evidenceItems = sqliteTable("evidence_items", {
   summary: text("summary").notNull(),
   status: text("status").notNull(),
 }, (table) => [uniqueIndex("evidence_source_hash_idx").on(table.sourceUri, table.contentHash)]);
+
+export const portfolioPrices = sqliteTable("portfolio_prices", {
+  id: text("id").primaryKey(),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id),
+  ownerEmail: text("owner_email").notNull(),
+  symbol: text("symbol").notNull(),
+  instrumentName: text("instrument_name").notNull(),
+  price: real("price").notNull(),
+  previousClose: real("previous_close").notNull(),
+  sourceLabel: text("source_label").notNull(),
+  sourceUri: text("source_uri").notNull(),
+  asOf: text("as_of").notNull(),
+  currency: text("currency").notNull(),
+}, (table) => [
+  uniqueIndex("portfolio_prices_portfolio_symbol_idx").on(table.portfolioId, table.symbol),
+  index("portfolio_prices_owner_idx").on(table.ownerEmail, table.portfolioId, table.symbol),
+]);
+
+export const brokerConnections = sqliteTable("broker_connections", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  provider: text("provider").notNull(),
+  providerUserId: text("provider_user_id"),
+  status: text("status").notNull(),
+  accessTokenCiphertext: text("access_token_ciphertext").notNull(),
+  accessTokenIv: text("access_token_iv").notNull(),
+  tokenExpiresAt: text("token_expires_at"),
+  lastSyncedAt: text("last_synced_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("broker_connections_owner_provider_idx").on(table.ownerEmail, table.provider)]);
+
+export const oauthStates = sqliteTable("oauth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  provider: text("provider").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const accountHoldings = sqliteTable("account_holdings", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => brokerConnections.id),
+  ownerEmail: text("owner_email").notNull(),
+  provider: text("provider").notNull(),
+  instrumentKey: text("instrument_key").notNull(),
+  symbol: text("symbol").notNull(),
+  instrumentName: text("instrument_name").notNull(),
+  quantity: real("quantity").notNull(),
+  averagePrice: real("average_price").notNull(),
+  lastPrice: real("last_price").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("account_holdings_connection_instrument_idx").on(table.connectionId, table.instrumentKey),
+  index("account_holdings_owner_idx").on(table.ownerEmail, table.provider, table.symbol),
+]);
+
+export const instrumentMappings = sqliteTable("instrument_mappings", {
+  id: text("id").primaryKey(),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id),
+  ownerEmail: text("owner_email").notNull(),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").notNull(),
+  analysisSymbol: text("analysis_symbol"),
+  status: text("status").notNull(),
+  source: text("source").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("instrument_mappings_portfolio_symbol_idx").on(table.portfolioId, table.symbol),
+  index("instrument_mappings_owner_idx").on(table.ownerEmail, table.portfolioId, table.symbol),
+]);

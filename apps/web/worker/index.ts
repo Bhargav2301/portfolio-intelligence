@@ -9,6 +9,8 @@ interface Env {
   UPSTOX_CLIENT_SECRET?: string;
   UPSTOX_REDIRECT_URI?: string;
   CONNECTOR_ENCRYPTION_KEY?: string;
+  TRADING_AGENTS_API_URL?: string;
+  TRADING_AGENTS_API_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -37,6 +39,8 @@ const worker = {
       UPSTOX_CLIENT_SECRET: env.UPSTOX_CLIENT_SECRET,
       UPSTOX_REDIRECT_URI: env.UPSTOX_REDIRECT_URI,
       CONNECTOR_ENCRYPTION_KEY: env.CONNECTOR_ENCRYPTION_KEY,
+      TRADING_AGENTS_API_URL: env.TRADING_AGENTS_API_URL,
+      TRADING_AGENTS_API_TOKEN: env.TRADING_AGENTS_API_TOKEN,
     };
     const url = new URL(request.url);
 

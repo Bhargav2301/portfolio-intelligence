@@ -2,10 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ChatResponse, DashboardData, Evidence, HoldingInput, PortfolioResponse, Position, SetupData } from "../lib/types";
+import { AgentDesk } from "./agent-desk";
 
-type View = "overview" | "accounts" | "research" | "activity" | "scenario";
+type View = "overview" | "accounts" | "agents" | "research" | "activity" | "scenario";
 type User = { displayName: string; email: string | null };
-type ChatMessage = { role: "assistant" | "user"; text: string; evidence?: Evidence[]; restricted?: boolean };
+type ChatMessage = { role: "assistant" | "user"; text: string; evidence?: Evidence[]; citedSymbols?: string[]; restricted?: boolean };
 
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -23,6 +24,7 @@ const compactMoney = new Intl.NumberFormat("en-IN", {
 const navItems: Array<{ id: View; label: string; glyph: string }> = [
   { id: "overview", label: "Overview", glyph: "O" },
   { id: "accounts", label: "Accounts", glyph: "L" },
+  { id: "agents", label: "Agent desk", glyph: "AI" },
   { id: "research", label: "Research", glyph: "R" },
   { id: "activity", label: "Activity", glyph: "A" },
   { id: "scenario", label: "Scenario lab", glyph: "S" },
@@ -34,6 +36,7 @@ export default function PortfolioApp({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [transactionOpen, setTransactionOpen] = useState(false);
+  const [agentRunId, setAgentRunId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/portfolio", { cache: "no-store" })
@@ -141,12 +144,13 @@ export default function PortfolioApp({ user }: { user: User }) {
         {error && <div className="error-banner" role="alert">{error}</div>}
         {view === "overview" && <Overview data={dashboard} onViewChange={setView} />}
         {view === "accounts" && <AccountsView data={dashboard} onSync={syncConnectedAccount} />}
+        {view === "agents" && <AgentDesk data={dashboard} onRunChange={setAgentRunId} />}
         {view === "research" && <ResearchView data={dashboard} />}
         {view === "activity" && <ActivityView data={dashboard} onData={setData} onError={setError} />}
         {view === "scenario" && <ScenarioView data={dashboard} />}
       </main>
 
-      <ResearchCopilot data={dashboard} />
+      <ResearchCopilot data={dashboard} agentRunId={agentRunId} />
       {transactionOpen && (
         <TransactionDialog
           data={dashboard}
@@ -542,9 +546,10 @@ function ScenarioView({ data }: { data: DashboardData }) {
   );
 }
 
-function ResearchCopilot({ data }: { data: DashboardData }) {
+function ResearchCopilot({ data, agentRunId }: { data: DashboardData; agentRunId: string | null }) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"portfolio" | "agent">("portfolio");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: "assistant", text: `I can explain ${data.portfolio.name} using deterministic analytics and the evidence currently attached. Try asking about performance, concentration risk, sources, or scenarios.` },
   ]);
@@ -555,11 +560,15 @@ function ResearchCopilot({ data }: { data: DashboardData }) {
     setPrompt("");
     setBusy(true);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: clean }) });
+      const response = await fetch(mode === "agent" ? "/api/agents/chat" : "/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(mode === "agent" ? { prompt: clean, runId: agentRunId } : { prompt: clean }),
+      });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Unable to answer");
-      const answer = payload as ChatResponse;
-      setMessages((current) => [...current, { role: "assistant", text: answer.answer, evidence: answer.evidence, restricted: answer.status === "restricted" }]);
+      const answer = payload as ChatResponse & { cited_symbols?: string[] };
+      setMessages((current) => [...current, { role: "assistant", text: answer.answer, evidence: answer.evidence, citedSymbols: answer.cited_symbols, restricted: answer.status === "restricted" }]);
     } catch (reason) {
       setMessages((current) => [...current, { role: "assistant", text: reason instanceof Error ? reason.message : "Unable to answer" }]);
     } finally { setBusy(false); }
@@ -568,20 +577,21 @@ function ResearchCopilot({ data }: { data: DashboardData }) {
   return (
     <aside className="copilot">
       <div className="copilot-heading"><div><span className="copilot-mark">PI</span><div><strong>Research copilot</strong><small><i /> Evidence-gated</small></div></div><button aria-label="Copilot information">i</button></div>
+      <div className="copilot-modes"><button className={mode === "portfolio" ? "active" : ""} onClick={() => setMode("portfolio")}>Portfolio</button><button className={mode === "agent" ? "active" : ""} onClick={() => setMode("agent")}>Agent run</button></div>
       <div className="chat-stream">
         {messages.map((message, index) => (
           <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
             {message.role === "assistant" && <span className="chat-avatar">PI</span>}
-            <div><p>{message.text}</p>{message.restricted && <span className="restricted-chip">Policy restriction applied</span>}{message.evidence && message.evidence.length > 0 && <div className="chat-sources">{message.evidence.slice(0, 2).map((item) => <span key={item.id}>{item.symbol} · {item.title}</span>)}</div>}</div>
+            <div><p>{message.text}</p>{message.restricted && <span className="restricted-chip">Policy restriction applied</span>}{message.evidence && message.evidence.length > 0 && <div className="chat-sources">{message.evidence.slice(0, 2).map((item) => <span key={item.id}>{item.symbol} · {item.title}</span>)}</div>}{message.citedSymbols && message.citedSymbols.length > 0 && <div className="chat-sources">{message.citedSymbols.map((symbol) => <span key={symbol}>{symbol} · completed agent artifact</span>)}</div>}</div>
           </div>
         ))}
         {busy && <div className="chat-message assistant"><span className="chat-avatar">PI</span><div className="thinking"><i /><i /><i /></div></div>}
       </div>
       <div className="suggestion-list">
-        {["What drives my returns?", "Show concentration risk", "What sources are attached?"].map((suggestion) => <button key={suggestion} onClick={() => void ask(suggestion)}>{suggestion}</button>)}
+        {(mode === "agent" ? ["Summarize the latest run", "Why this rating?", "Which policy checks applied?"] : ["What drives my returns?", "Show concentration risk", "What sources are attached?"]).map((suggestion) => <button key={suggestion} onClick={() => void ask(suggestion)}>{suggestion}</button>)}
       </div>
-      <form className="chat-input" onSubmit={submit}><input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ask about this portfolio…" aria-label="Ask the research copilot" /><button disabled={!prompt.trim() || busy} aria-label="Send question">↑</button></form>
-      <p className="copilot-disclaimer">Research intelligence · {data.sourceMode} holdings · not investment advice.</p>
+      <form className="chat-input" onSubmit={submit}><input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === "agent" ? "Ask about a completed run…" : "Ask about this portfolio…"} aria-label="Ask the research copilot" /><button disabled={!prompt.trim() || busy || (mode === "agent" && !agentRunId)} aria-label="Send question">↑</button></form>
+      <p className="copilot-disclaimer">{mode === "agent" && !agentRunId ? "Start an Agent desk run to enable run Q&A." : `Research intelligence · ${data.sourceMode} holdings · not investment advice.`}</p>
     </aside>
   );
 }
@@ -633,4 +643,4 @@ function initials(value: string) { return value.split(/\s+/).slice(0, 2).map((pa
 function formatDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value)); }
 function formatDateTime(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function sourceLabel(data: DashboardData) { return data.sourceMode === "connected" ? "Linked holdings" : data.sourceMode === "manual" ? "Manual prices" : "Demo data"; }
-function titleForView(view: View) { return view === "accounts" ? "Accounts & connections" : view === "research" ? "Evidence & research" : view === "activity" ? "Transaction history" : "Scenario lab"; }
+function titleForView(view: View) { return view === "accounts" ? "Accounts & connections" : view === "agents" ? "Agent decision room" : view === "research" ? "Evidence & research" : view === "activity" ? "Transaction history" : "Scenario lab"; }

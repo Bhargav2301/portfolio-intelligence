@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pi-agent-runtime"
+version = "0.2.0"
+description = "Process-isolated Portfolio Intelligence adapter for TauricResearch/TradingAgents"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "langgraph>=0.4.8,<1",
+  "pydantic>=2.9,<3",
+  "uvicorn[standard]>=0.30,<1",
+  "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+]
+
+[project.optional-dependencies]
+test = ["httpx>=0.27,<1", "pytest>=8.3,<9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pi_agent_runtime"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

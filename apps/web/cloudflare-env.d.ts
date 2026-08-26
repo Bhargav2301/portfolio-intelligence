@@ -20,7 +20,17 @@ declare global {
     fetch(request: Request): Promise<Response>;
   }
 
+  interface PIConnectorEnv {
+    UPSTOX_CLIENT_ID?: string;
+    UPSTOX_CLIENT_SECRET?: string;
+    UPSTOX_REDIRECT_URI?: string;
+    CONNECTOR_ENCRYPTION_KEY?: string;
+    TRADING_AGENTS_API_URL?: string;
+    TRADING_AGENTS_API_TOKEN?: string;
+  }
+
   var __PI_DB: D1Database | undefined;
+  var __PI_ENV: PIConnectorEnv | undefined;
 }
 
 export {};

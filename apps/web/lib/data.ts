@@ -64,6 +64,13 @@ type RawAccountHolding = {
   updated_at: string;
 };
 
+type RawInstrumentMapping = {
+  symbol: string;
+  exchange: string;
+  analysis_symbol: string | null;
+  status: "confirmed" | "unresolved" | "unavailable";
+};
+
 const DEMO_EMAIL = "demo.user@portfolio.local";
 const DEMO_AS_OF = "2026-08-13T05:00:00.000Z";
 
@@ -190,7 +197,29 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS account_holdings_owner_idx
       ON account_holdings(owner_email, provider, symbol)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS instrument_mappings (
+      id TEXT PRIMARY KEY,
+      portfolio_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      exchange TEXT NOT NULL,
+      analysis_symbol TEXT,
+      status TEXT NOT NULL CHECK(status IN ('confirmed','unresolved','unavailable')),
+      source TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      UNIQUE(portfolio_id, symbol)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS instrument_mappings_owner_idx
+      ON instrument_mappings(owner_email, portfolio_id, symbol)`),
   ]);
+}
+
+function marketDataSymbol(exchange: string, symbol: string) {
+  if (exchange === "NSE") return `${symbol}.NS`;
+  if (exchange === "BSE") return `${symbol}.BO`;
+  if (exchange === "NASDAQ" || exchange === "NYSE") return symbol;
+  return null;
 }
 
 async function seedReferenceData() {
@@ -389,6 +418,8 @@ export async function syncUpstoxHoldings(ownerEmail: string) {
       (id, owner_email, name, base_currency, is_demo, created_at) VALUES (?, ?, 'Upstox Portfolio', 'INR', 0, ?)`)
       .bind(crypto.randomUUID(), ownerEmail, now).run();
   }
+  const portfolio = await firstPortfolio(ownerEmail);
+  if (!portfolio) throw new Error("PORTFOLIO_SETUP_REQUIRED");
   await database().prepare("DELETE FROM account_holdings WHERE connection_id = ?").bind(connection.id).run();
   const statements = payload.data.flatMap((holding) => {
     const symbol = holding.trading_symbol?.trim().toUpperCase();
@@ -397,11 +428,21 @@ export async function syncUpstoxHoldings(ownerEmail: string) {
     const average = Number(holding.average_price ?? 0);
     const last = Number(holding.last_price ?? 0);
     if (!symbol || !instrumentKey || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(average) || !Number.isFinite(last)) return [];
+    const exchange = instrumentKey.startsWith("NSE") ? "NSE" : instrumentKey.startsWith("BSE") ? "BSE" : "UNKNOWN";
+    const analysisSymbol = marketDataSymbol(exchange, symbol);
     return [database().prepare(`INSERT INTO account_holdings
       (id, connection_id, owner_email, provider, instrument_key, symbol, instrument_name,
        quantity, average_price, last_price, updated_at)
       VALUES (?, ?, ?, 'upstox', ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), connection.id, ownerEmail, instrumentKey, symbol, symbol, quantity, average, last, now)];
+      .bind(crypto.randomUUID(), connection.id, ownerEmail, instrumentKey, symbol, symbol, quantity, average, last, now),
+    database().prepare(`INSERT INTO instrument_mappings
+      (id, portfolio_id, owner_email, symbol, exchange, analysis_symbol, status, source, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'upstox', ?)
+      ON CONFLICT(portfolio_id, symbol) DO UPDATE SET exchange = excluded.exchange,
+        analysis_symbol = excluded.analysis_symbol, status = excluded.status,
+        source = excluded.source, updated_at = excluded.updated_at`)
+      .bind(crypto.randomUUID(), portfolio.id, ownerEmail, symbol, exchange, analysisSymbol,
+        analysisSymbol ? "confirmed" : "unresolved", now)];
   });
   statements.push(database().prepare(`UPDATE broker_connections
     SET status = 'connected', last_synced_at = ?, updated_at = ? WHERE id = ?`)
@@ -519,6 +560,9 @@ function foldPositions(transactions: RawTransaction[], prices: Map<string, RawPr
     return {
       symbol,
       name: value.name,
+      exchange: "UNKNOWN",
+      analysisSymbol: null,
+      mappingStatus: "unresolved",
       quantity: value.quantity,
       averageCost: value.quantity ? value.costBasis / value.quantity : 0,
       currentPrice,
@@ -565,6 +609,9 @@ function combineAccountHoldings(ledgerPositions: Position[], holdings: RawAccoun
       combined.set(holding.symbol, {
         symbol: holding.symbol,
         name: holding.instrument_name,
+        exchange: "UNKNOWN",
+        analysisSymbol: null,
+        mappingStatus: "unresolved",
         quantity: holding.quantity,
         averageCost: holding.average_price,
         currentPrice,
@@ -613,7 +660,7 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
   const portfolio = await firstPortfolio(ownerEmail);
   if (!portfolio) throw new Error("PORTFOLIO_SETUP_REQUIRED");
   const portfolioId = portfolio.id;
-  const [priceResult, evidenceResult, transactions, accountHoldingResult, connections] = await Promise.all([
+  const [priceResult, evidenceResult, transactions, accountHoldingResult, mappingResult, connections] = await Promise.all([
     portfolio.is_demo
       ? db.prepare("SELECT * FROM prices ORDER BY symbol").all<RawPrice>()
       : db.prepare(`SELECT symbol, instrument_name, price, previous_close, source_label, source_uri, as_of, currency
@@ -624,15 +671,27 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     db.prepare(`SELECT symbol, instrument_name, quantity, average_price, last_price, updated_at
       FROM account_holdings WHERE owner_email = ? ORDER BY symbol`)
       .bind(ownerEmail).all<RawAccountHolding>(),
+    db.prepare(`SELECT symbol, exchange, analysis_symbol, status FROM instrument_mappings
+      WHERE owner_email = ? AND portfolio_id = ? ORDER BY symbol`)
+      .bind(ownerEmail, portfolioId).all<RawInstrumentMapping>(),
     getConnections(ownerEmail),
   ]);
 
   const prices = new Map(priceResult.results.map((price) => [price.symbol, price]));
+  const mappings = new Map(mappingResult.results.map((mapping) => [mapping.symbol, mapping]));
   const positions = combineAccountHoldings(
     foldPositions(transactions, prices),
     accountHoldingResult.results,
     prices,
-  );
+  ).map((position) => {
+    const mapping = mappings.get(position.symbol);
+    return {
+      ...position,
+      exchange: mapping?.exchange ?? "UNKNOWN",
+      analysisSymbol: mapping?.analysis_symbol ?? null,
+      mappingStatus: mapping?.status ?? (portfolio.is_demo ? "unavailable" : "unresolved"),
+    };
+  });
   const totalValue = positions.reduce((sum, position) => sum + position.marketValue, 0);
   const totalCost = positions.reduce((sum, position) => sum + position.costBasis, 0);
   const totalGain = totalValue - totalCost;
@@ -691,6 +750,15 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     asOf: positions.reduce((latest, position) => position.priceAsOf > latest ? position.priceAsOf : latest, DEMO_AS_OF),
     sourceMode: accountHoldingResult.results.length ? "connected" : portfolio.is_demo ? "demo" : "manual",
     connections,
+    agentPolicy: {
+      reserveFloorInr: 2_500_000,
+      deployableCashInr: 3_000_000,
+      maxPositionWeightPercent: 15,
+      maxSingleDeploymentInr: 200_000,
+      dataMaxAgeMinutes: 4320,
+      noEqualWeighting: true,
+      requireHumanConfirmation: true,
+    },
   };
 }
 
@@ -733,6 +801,7 @@ export async function createManualPortfolio(ownerEmail: string, input: {
       .bind(portfolioId, ownerEmail, name, input.baseCurrency, now),
   ];
   holdings.forEach((holding, index) => {
+    const analysisSymbol = marketDataSymbol(holding.exchange, holding.symbol);
     statements.push(
       db.prepare(`INSERT INTO transactions
         (id, portfolio_id, owner_email, symbol, instrument_name, transaction_type,
@@ -749,6 +818,11 @@ export async function createManualPortfolio(ownerEmail: string, input: {
           as_of = excluded.as_of, currency = excluded.currency`)
         .bind(crypto.randomUUID(), portfolioId, ownerEmail, holding.symbol, holding.name, holding.currentPrice, holding.currentPrice,
           `manual://${holding.exchange}/${holding.symbol}`, now, input.baseCurrency),
+      db.prepare(`INSERT INTO instrument_mappings
+        (id, portfolio_id, owner_email, symbol, exchange, analysis_symbol, status, source, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)`)
+        .bind(crypto.randomUUID(), portfolioId, ownerEmail, holding.symbol, holding.exchange, analysisSymbol,
+          analysisSymbol ? "confirmed" : "unresolved", now),
     );
   });
   await db.batch(statements);
