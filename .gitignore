@@ -1,16 +1,42 @@
+# Secrets
 .env
-.venv/
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
+.mypy_cache/
+.venv/
 dist/
 build/
 *.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+*.tsbuildinfo
+
+# Local data
+data/
+uploads/
+*.db
+*.sqlite*
+
+# IDE and OS
 .idea/
 .vscode/
 .DS_Store
+Thumbs.db
 
+# Test and coverage
+.coverage
+htmlcov/
+coverage/

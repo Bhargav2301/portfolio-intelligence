@@ -1,28 +1,49 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  quality:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, agents]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install service
+        run: pip install -e "services/${{ matrix.service }}[dev]"
+      - name: Compile
+        run: python -m compileall -q "services/${{ matrix.service }}/src"
+      - name: Test
+        run: python -m unittest discover -s "services/${{ matrix.service }}/tests" -p "test_*.py" -v
+
+  web:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+
+  repository-policy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-      - name: Install project
-        run: pip install -e '.[dev]'
-      - name: Unit tests
-        run: pytest --cov=portfolio_intelligence --cov-report=term-missing
-      - name: Lint
-        run: ruff check .
-      - name: Type check
-        run: mypy src
-
+      - run: python scripts/verify_repository.py

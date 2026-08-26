@@ -1,21 +1,30 @@
-# Security Policy
+# Security policy
 
-## Sensitive data
+Portfolio Intelligence handles financial records and must fail closed.
 
-Do not submit credentials, access tokens, portfolio exports, tax documents, client data,
-or licensed market-data payloads in issues or pull requests.
+## Reporting a vulnerability
 
-## Reporting
+Do not open a public issue containing:
 
-Report suspected vulnerabilities privately to the repository owner. Do not open a public
-issue containing exploit details or personal financial data.
+- Credentials, tokens, or private keys.
+- Portfolio or identity data.
+- Uploaded statements or screenshots containing account details.
+- A working exploit.
 
-## Design controls
+Use GitHub private vulnerability reporting when enabled, or contact the repository owner through a private channel.
 
-- Secrets are loaded from the environment or a production secret manager.
-- Broker connectors must use least-privilege, read-only scopes by default.
-- Tenant boundaries are enforced at the API and database layers.
-- Evidence documents are treated as untrusted input and cannot issue tool instructions.
-- Ledger corrections are append-only reversals with complete audit history.
-- Recommendation outputs must pass evidence, freshness, and suitability policy gates.
+Include the affected commit, component, reproduction steps using synthetic data, impact, and any safe mitigation.
+
+## Supported version
+
+Only the latest commit on main is supported during the initial build.
+
+## Non-negotiable controls
+
+- No order execution.
+- No browser-held broker or model credentials.
+- No unscanned production uploads.
+- No cross-tenant access.
+- No AI-generated portfolio arithmetic.
+- No real secrets committed to Git.
 
