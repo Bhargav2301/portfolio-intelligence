@@ -5,7 +5,6 @@ import hashlib
 import json
 import re
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -245,7 +244,11 @@ def normalize_qber_rows(
         )
 
     public_lots = [
-        {key: value for key, value in lot.items() if not key.startswith("source_") and key != "current_price"}
+        {
+            key: value
+            for key, value in lot.items()
+            if not key.startswith("source_") and key != "current_price"
+        }
         for lot in lots
     ]
     return {
