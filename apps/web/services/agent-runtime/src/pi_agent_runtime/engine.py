@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from .models import AnalysisRunRequest, HoldingSnapshot, SymbolResult
 
@@ -12,7 +13,12 @@ EventReporter = Callable[[str, str, str | None], None]
 
 
 class AnalysisEngine(Protocol):
-    def analyze(self, request: AnalysisRunRequest, holding: HoldingSnapshot, report: EventReporter) -> SymbolResult: ...
+    def analyze(
+        self,
+        request: AnalysisRunRequest,
+        holding: HoldingSnapshot,
+        report: EventReporter,
+    ) -> SymbolResult: ...
 
 
 class TradingAgentsEngine:
@@ -21,27 +27,51 @@ class TradingAgentsEngine:
     def __init__(self) -> None:
         self._lock = Lock()
 
-    def analyze(self, request: AnalysisRunRequest, holding: HoldingSnapshot, report: EventReporter) -> SymbolResult:
+    def analyze(
+        self,
+        request: AnalysisRunRequest,
+        holding: HoldingSnapshot,
+        report: EventReporter,
+    ) -> SymbolResult:
         with self._lock:
             return self._analyze_locked(request, holding, report)
 
-    def _analyze_locked(self, request: AnalysisRunRequest, holding: HoldingSnapshot, report: EventReporter) -> SymbolResult:
+    def _analyze_locked(
+        self,
+        request: AnalysisRunRequest,
+        holding: HoldingSnapshot,
+        report: EventReporter,
+    ) -> SymbolResult:
         try:
             from langchain_core.callbacks import BaseCallbackHandler
             from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
         except ImportError as error:
-            raise RuntimeError("TradingAgents dependencies are not installed") from error
+            raise RuntimeError(
+                "TradingAgents dependencies are not installed"
+            ) from error
 
         class SanitizedCallback(BaseCallbackHandler):
-            def on_llm_start(self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any) -> None:
-                name = serialized.get("name") or serialized.get("id", ["language model"])[-1]
+            def on_llm_start(
+                self,
+                serialized: dict[str, Any],
+                prompts: list[str],
+                **kwargs: Any,
+            ) -> None:
+                name = serialized.get("name") or serialized.get(
+                    "id", ["language model"]
+                )[-1]
                 report("model", f"{name} started", holding.symbol)
 
             def on_llm_end(self, response: Any, **kwargs: Any) -> None:
                 report("model", "Model response completed", holding.symbol)
 
-            def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:
+            def on_tool_start(
+                self,
+                serialized: dict[str, Any],
+                input_str: str,
+                **kwargs: Any,
+            ) -> None:
                 name = serialized.get("name", "market data tool")
                 report("tool", f"{name} started", holding.symbol)
 
@@ -49,11 +79,19 @@ class TradingAgentsEngine:
                 report("tool", "Tool lookup completed", holding.symbol)
 
             def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
-                report("tool", f"Tool lookup failed: {type(error).__name__}", holding.symbol)
+                report(
+                    "tool",
+                    f"Tool lookup failed: {type(error).__name__}",
+                    holding.symbol,
+                )
 
         config = dict(DEFAULT_CONFIG)
         config.update(self._environment_config(request))
-        report("analysts", "Market, social, news, and fundamentals review started", holding.symbol)
+        report(
+            "analysts",
+            "Market, social, news, and fundamentals review started",
+            holding.symbol,
+        )
         graph = TradingAgentsGraph(
             selected_analysts=list(request.selected_analysts),
             debug=False,
@@ -65,11 +103,17 @@ class TradingAgentsEngine:
             request.analysis_date.isoformat(),
             asset_type="stock",
         )
-        report("decision", "Research, trading, risk, and portfolio decisions completed", holding.symbol)
+        report(
+            "decision",
+            "Research, trading, risk, and portfolio decisions completed",
+            holding.symbol,
+        )
         return self._to_result(holding, final_state or {}, decision)
 
     def _environment_config(self, request: AnalysisRunRequest) -> dict[str, Any]:
-        result_dir = Path(os.getenv("TRADINGAGENTS_RESULTS_DIR", "/tmp/pi-tradingagents"))
+        result_dir = Path(
+            os.getenv("TRADINGAGENTS_RESULTS_DIR", "/tmp/pi-tradingagents")
+        )
         result_dir.mkdir(parents=True, exist_ok=True)
         config: dict[str, Any] = {
             "results_dir": str(result_dir),
@@ -103,7 +147,12 @@ class TradingAgentsEngine:
         return cls._text(getattr(decision, key, None), fallback)
 
     @classmethod
-    def _to_result(cls, holding: HoldingSnapshot, state: dict[str, Any], decision: Any) -> SymbolResult:
+    def _to_result(
+        cls,
+        holding: HoldingSnapshot,
+        state: dict[str, Any],
+        decision: Any,
+    ) -> SymbolResult:
         rating = cls._decision_field(decision, "rating", "Unknown")
         allowed_ratings = {"Buy", "Overweight", "Hold", "Underweight", "Sell"}
         if rating not in allowed_ratings:
@@ -118,10 +167,22 @@ class TradingAgentsEngine:
             symbol=holding.symbol,
             analysis_symbol=holding.analysis_symbol or holding.symbol,
             rating=rating,
-            executive_summary=cls._decision_field(decision, "executive_summary", "No executive summary was returned."),
-            investment_thesis=cls._decision_field(decision, "investment_thesis", "No investment thesis was returned."),
+            executive_summary=cls._decision_field(
+                decision,
+                "executive_summary",
+                "No executive summary was returned.",
+            ),
+            investment_thesis=cls._decision_field(
+                decision,
+                "investment_thesis",
+                "No investment thesis was returned.",
+            ),
             trader_action=trader_action,
-            trader_reasoning=cls._decision_field(trader_plan, "reasoning", "No trader summary was returned."),
+            trader_reasoning=cls._decision_field(
+                trader_plan,
+                "reasoning",
+                "No trader summary was returned.",
+            ),
             research_judgement=cls._text(
                 (state.get("investment_debate_state") or {}).get("judge_decision"),
                 "No research-manager summary was returned.",
@@ -135,7 +196,8 @@ class TradingAgentsEngine:
                 "market": cls._text(state.get("market_report"), "Not returned"),
                 "sentiment": cls._text(state.get("sentiment_report"), "Not returned"),
                 "news": cls._text(state.get("news_report"), "Not returned"),
-                "fundamentals": cls._text(state.get("fundamentals_report"), "Not returned"),
+                "fundamentals": cls._text(
+                    state.get("fundamentals_report"), "Not returned"
+                ),
             },
         )
-

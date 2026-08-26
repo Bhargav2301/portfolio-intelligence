@@ -2,10 +2,10 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-pytest.importorskip("langgraph")
-
 from pi_agent_runtime.models import AnalysisRunRequest, HoldingSnapshot, SymbolResult
 from pi_agent_runtime.workflow import LangGraphPortfolioWorkflow
+
+pytest.importorskip("langgraph")
 
 
 class FakeEngine:
@@ -31,20 +31,24 @@ def test_langgraph_routes_analysis_through_policy_review() -> None:
         portfolio_id="portfolio-1",
         snapshot_id="snapshot-123",
         snapshot_hash="c" * 64,
-        as_of=datetime.now(timezone.utc),
+        as_of=datetime.now(timezone.utc),  # noqa: UP017 - Python 3.10 runtime
         analysis_date=date.today(),
-        holdings=[HoldingSnapshot(
-            symbol="INFY",
-            name="Infosys",
-            exchange="NSE",
-            analysis_symbol="INFY.NS",
-            quantity=1,
-            average_cost=100,
-            current_price=110,
-            market_value=110,
-            allocation_percent=100,
-            price_as_of=datetime.now(timezone.utc),
-        )],
+        holdings=[
+            HoldingSnapshot(
+                symbol="INFY",
+                name="Infosys",
+                exchange="NSE",
+                analysis_symbol="INFY.NS",
+                quantity=1,
+                average_cost=100,
+                current_price=110,
+                market_value=110,
+                allocation_percent=100,
+                price_as_of=datetime.now(
+                    timezone.utc  # noqa: UP017 - Python 3.10 runtime
+                ),
+            )
+        ],
     )
     events = []
     persisted = []

@@ -9,10 +9,17 @@ class FakeEngine:
     def analyze(self, request, holding, report):
         report("analysts", "Synthetic test completed", holding.symbol)
         return SymbolResult(
-            symbol=holding.symbol, analysis_symbol=holding.analysis_symbol,
-            rating="Hold", executive_summary="Stable", investment_thesis="Test thesis",
-            trader_action="Hold", trader_reasoning="No change", research_judgement="Balanced",
-            risk_judgement="Within limits", policy_checks=[], reports={"market": "Test"},
+            symbol=holding.symbol,
+            analysis_symbol=holding.analysis_symbol,
+            rating="Hold",
+            executive_summary="Stable",
+            investment_thesis="Test thesis",
+            trader_action="Hold",
+            trader_reasoning="No change",
+            research_judgement="Balanced",
+            risk_judgement="Within limits",
+            policy_checks=[],
+            reports={"market": "Test"},
         )
 
 
@@ -35,13 +42,27 @@ class FakeWorkflow:
 
 def build_request() -> AnalysisRunRequest:
     return AnalysisRunRequest(
-        portfolio_id="portfolio-1", snapshot_id="snapshot-123", snapshot_hash="b" * 64,
-        as_of=datetime.now(timezone.utc), analysis_date=date.today(),
-        holdings=[HoldingSnapshot(
-            symbol="INFY", name="Infosys", exchange="NSE", analysis_symbol="INFY.NS",
-            quantity=1, average_cost=100, current_price=110, market_value=110,
-            allocation_percent=100, price_as_of=datetime.now(timezone.utc),
-        )],
+        portfolio_id="portfolio-1",
+        snapshot_id="snapshot-123",
+        snapshot_hash="b" * 64,
+        as_of=datetime.now(timezone.utc),  # noqa: UP017 - Python 3.10 runtime
+        analysis_date=date.today(),
+        holdings=[
+            HoldingSnapshot(
+                symbol="INFY",
+                name="Infosys",
+                exchange="NSE",
+                analysis_symbol="INFY.NS",
+                quantity=1,
+                average_cost=100,
+                current_price=110,
+                market_value=110,
+                allocation_percent=100,
+                price_as_of=datetime.now(
+                    timezone.utc  # noqa: UP017 - Python 3.10 runtime
+                ),
+            )
+        ],
     )
 
 

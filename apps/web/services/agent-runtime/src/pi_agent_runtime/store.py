@@ -36,12 +36,17 @@ class InMemoryRunStore:
 
     def events(self, run_id: str, after: int = 0) -> list[RunEvent]:
         with self._lock:
-            return [deepcopy(event) for event in self._events.get(run_id, []) if event.sequence > after]
+            return [
+                deepcopy(event)
+                for event in self._events.get(run_id, [])
+                if event.sequence > after
+            ]
 
     def latest_for_owner(self, owner_email: str) -> AnalysisRun | None:
         with self._lock:
-            matches = [run for run in self._runs.values() if run.owner_email == owner_email]
+            matches = [
+                run for run in self._runs.values() if run.owner_email == owner_email
+            ]
             if not matches:
                 return None
             return deepcopy(max(matches, key=lambda run: run.created_at))
-

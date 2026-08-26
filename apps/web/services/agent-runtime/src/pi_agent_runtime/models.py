@@ -11,12 +11,12 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class RunMode(str, Enum):
+class RunMode(str, Enum):  # noqa: UP042 - Python 3.10 runtime
     REVIEW = "review"
     WEEKLY_TRIGGER = "weekly_trigger"
 
 
-class RunStatus(str, Enum):
+class RunStatus(str, Enum):  # noqa: UP042 - Python 3.10 runtime
     QUEUED = "queued"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -24,7 +24,7 @@ class RunStatus(str, Enum):
     FAILED = "failed"
 
 
-class EventLevel(str, Enum):
+class EventLevel(str, Enum):  # noqa: UP042 - Python 3.10 runtime
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -67,7 +67,9 @@ class AnalysisRunRequest(StrictModel):
     mode: RunMode = RunMode.WEEKLY_TRIGGER
     holdings: list[HoldingSnapshot] = Field(min_length=1, max_length=100)
     selected_symbols: list[str] = Field(default_factory=list, max_length=100)
-    selected_analysts: list[Literal["market", "social", "news", "fundamentals"]] = Field(
+    selected_analysts: list[
+        Literal["market", "social", "news", "fundamentals"]
+    ] = Field(
         default_factory=lambda: ["market", "social", "news", "fundamentals"],
         min_length=1,
         max_length=4,
@@ -84,11 +86,14 @@ class AnalysisRunRequest(StrictModel):
         return normalized
 
     @model_validator(mode="after")
-    def selected_holdings_exist(self) -> "AnalysisRunRequest":
+    def selected_holdings_exist(self) -> AnalysisRunRequest:
         known = {holding.symbol for holding in self.holdings}
         missing = set(self.selected_symbols) - known
         if missing:
-            raise ValueError(f"selected symbols are absent from the snapshot: {', '.join(sorted(missing))}")
+            missing_symbols = ", ".join(sorted(missing))
+            raise ValueError(
+                f"selected symbols are absent from the snapshot: {missing_symbols}"
+            )
         return self
 
 
@@ -156,4 +161,4 @@ class ChatAnswer(StrictModel):
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc)  # noqa: UP017 - Python 3.10 runtime

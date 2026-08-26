@@ -60,16 +60,24 @@ class LangGraphPortfolioWorkflow:
         )
         return graph.compile()
 
-    def invoke(self, request: AnalysisRunRequest, selected_symbols: list[str]) -> list[SymbolResult]:
-        final_state = self._graph.invoke({
-            "request": request,
-            "holdings": {holding.symbol: holding for holding in request.holdings},
-            "selected_symbols": selected_symbols,
-            "cursor": 0,
-            "current_symbol": None,
-            "pending_result": None,
-            "results": [],
-        })
+    def invoke(
+        self,
+        request: AnalysisRunRequest,
+        selected_symbols: list[str],
+    ) -> list[SymbolResult]:
+        final_state = self._graph.invoke(
+            {
+                "request": request,
+                "holdings": {
+                    holding.symbol: holding for holding in request.holdings
+                },
+                "selected_symbols": selected_symbols,
+                "cursor": 0,
+                "current_symbol": None,
+                "pending_result": None,
+                "results": [],
+            }
+        )
         return list(final_state["results"])
 
     def _select_symbol(self, state: PortfolioWorkflowState) -> dict[str, object]:
@@ -80,7 +88,9 @@ class LangGraphPortfolioWorkflow:
     def _analyze_symbol(self, state: PortfolioWorkflowState) -> dict[str, object]:
         symbol = state["current_symbol"]
         if not symbol:
-            raise RuntimeError("LangGraph workflow reached analysis without a selected symbol")
+            raise RuntimeError(
+                "LangGraph workflow reached analysis without a selected symbol"
+            )
         holding = state["holdings"][symbol]
         result = self._engine.analyze(state["request"], holding, self._report_event)
         return {"pending_result": result}
@@ -89,8 +99,12 @@ class LangGraphPortfolioWorkflow:
         symbol = state["current_symbol"]
         result = state["pending_result"]
         if not symbol or result is None:
-            raise RuntimeError("LangGraph workflow reached policy review without an analysis result")
-        result.policy_checks = result_policy_checks(state["request"], state["holdings"][symbol], result)
+            raise RuntimeError(
+                "LangGraph workflow reached policy review without an analysis result"
+            )
+        result.policy_checks = result_policy_checks(
+            state["request"], state["holdings"][symbol], result
+        )
         self._report_result(result)
         self._report_event("symbol", "Analysis completed", symbol)
         return {
@@ -101,5 +115,6 @@ class LangGraphPortfolioWorkflow:
 
     @staticmethod
     def _route_after_policy(state: PortfolioWorkflowState) -> str:
-        return "next_symbol" if state["cursor"] < len(state["selected_symbols"]) else "complete"
-
+        if state["cursor"] < len(state["selected_symbols"]):
+            return "next_symbol"
+        return "complete"
