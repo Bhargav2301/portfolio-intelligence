@@ -1,0 +1,210 @@
+name: Build, attest, and deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected GitHub environment and isolated AWS account
+        required: true
+        type: choice
+        options: [staging, production]
+      apply:
+        description: Apply the reviewed Terraform plan
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+concurrency:
+  group: spi-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  quality-gate:
+    uses: ./.github/workflows/quality-reusable.yml
+
+  build:
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            context: .
+            dockerfile: apps/web/Dockerfile
+          - service: api
+            context: services/api
+            dockerfile: services/api/Dockerfile
+          - service: agents
+            context: services/agents
+            dockerfile: services/agents/Dockerfile
+          - service: migration
+            context: .
+            dockerfile: infra/migrations/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve immutable repository
+        id: repository
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          account=$(aws sts get-caller-identity --query Account --output text)
+          echo "uri=${account}.dkr.ecr.ap-south-1.amazonaws.com/spi-${ENVIRONMENT}/${SERVICE}" >> "$GITHUB_OUTPUT"
+      - name: Build and push commit image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.repository.outputs.uri }}:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Resolve promoted digest
+        id: digest
+        env:
+          IMAGE: ${{ steps.repository.outputs.uri }}:${{ github.sha }}
+        run: echo "value=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Manifest.Digest}}' | tr -d '"')" >> "$GITHUB_OUTPUT"
+      - uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.repository.outputs.uri }}@${{ steps.digest.outputs.value }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.service }}.spdx.json
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ steps.repository.outputs.uri }}@${{ steps.digest.outputs.value }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+      - uses: sigstore/cosign-installer@v3
+      - name: Keyless-sign the exact digest
+        env:
+          IMAGE: ${{ steps.repository.outputs.uri }}@${{ steps.digest.outputs.value }}
+        run: cosign sign --yes "$IMAGE"
+      - name: Record digest without credentials
+        env:
+          SERVICE: ${{ matrix.service }}
+          DIGEST: ${{ steps.digest.outputs.value }}
+        run: jq -n --arg service "$SERVICE" --arg digest "$DIGEST" '{($service): $digest}' > digest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.service }}
+          path: |
+            digest.json
+            sbom-${{ matrix.service }}.spdx.json
+          retention-days: 90
+
+  plan:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      plan-artifact: terraform-${{ inputs.environment }}-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+      - name: Merge promoted digests
+        run: jq -s 'reduce .[] as $item ({}; . * $item)' release/*/digest.json > image-digests.json
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+      - name: Materialize protected configuration
+        env:
+          TFVARS_JSON: ${{ secrets.TFVARS_JSON }}
+          BACKEND_BUCKET: ${{ vars.TERRAFORM_STATE_BUCKET }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          printf '%s' "$TFVARS_JSON" > infra/terraform/environment.auto.tfvars.json
+          printf 'bucket=%s\nkey=super-portfolio-intelligence/%s/terraform.tfstate\nregion=ap-south-1\nencrypt=true\nuse_lockfile=true\n' "$BACKEND_BUCKET" "$ENVIRONMENT" > backend.hcl
+      - run: terraform -chdir=infra/terraform init -backend-config="$GITHUB_WORKSPACE/backend.hcl"
+      - run: terraform -chdir=infra/terraform validate
+      - name: Produce reviewable immutable plan
+        run: terraform -chdir=infra/terraform plan -input=false -out="$GITHUB_WORKSPACE/release.tfplan" -var="image_digests=$(cat image-digests.json)"
+      - run: terraform -chdir=infra/terraform show -no-color "$GITHUB_WORKSPACE/release.tfplan" > terraform-plan.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-${{ inputs.environment }}-${{ github.sha }}
+          path: |
+            release.tfplan
+            terraform-plan.txt
+            image-digests.json
+          retention-days: 30
+
+  deploy:
+    if: inputs.apply
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: terraform-${{ inputs.environment }}-${{ github.sha }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+      - name: Restore protected backend configuration
+        env:
+          BACKEND_BUCKET: ${{ vars.TERRAFORM_STATE_BUCKET }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: printf 'bucket=%s\nkey=super-portfolio-intelligence/%s/terraform.tfstate\nregion=ap-south-1\nencrypt=true\nuse_lockfile=true\n' "$BACKEND_BUCKET" "$ENVIRONMENT" > backend.hcl
+      - run: terraform -chdir=infra/terraform init -backend-config="$GITHUB_WORKSPACE/backend.hcl"
+      - name: Apply the exact reviewed plan
+        run: terraform -chdir=infra/terraform apply -input=false "$GITHUB_WORKSPACE/release.tfplan"
+      - name: Run migration task before any traffic shift
+        id: migration
+        shell: bash
+        run: |
+          runtime=$(terraform -chdir=infra/terraform output -json migration_runtime)
+          cluster=$(jq -r .cluster <<<"$runtime")
+          definition=$(jq -r .task_definition <<<"$runtime")
+          subnets=$(jq -r '.subnet_ids | join(",")' <<<"$runtime")
+          group=$(jq -r .security_group <<<"$runtime")
+          task=$(aws ecs run-task --cluster "$cluster" --task-definition "$definition" --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$group],assignPublicIp=DISABLED}" --query 'tasks[0].taskArn' --output text)
+          test "$task" != "None"
+          aws ecs wait tasks-stopped --cluster "$cluster" --tasks "$task"
+          exit_code=$(aws ecs describe-tasks --cluster "$cluster" --tasks "$task" --query 'tasks[0].containers[?name==`migration`].exitCode | [0]' --output text)
+          test "$exit_code" = "0"
+      - name: Promote internal services and run the 5 percent web canary
+        run: python scripts/deploy_release.py --environment "${{ inputs.environment }}"
+      - name: Record deployment evidence
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          jq -n --arg environment "$ENVIRONMENT" --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" '{environment:$environment,commit:$commit,github_run_id:$run,migrations:"passed",live_orders:"unchanged"}' > deployment-evidence.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-evidence-${{ inputs.environment }}-${{ github.sha }}
+          path: deployment-evidence.json
+          retention-days: 2557

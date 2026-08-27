@@ -119,6 +119,10 @@ services:
       INTERNAL_API_URL: http://api:8000
       INTERNAL_AGENT_URL: http://agents:8001
       DEV_WORKSPACE_ID: ${DEV_WORKSPACE_ID}
+      DEV_USER_ID: ${DEV_USER_ID}
+      APP_ENV: ${APP_ENV}
+      REDIS_URL: redis://redis:6379/0
+      PUBLIC_APP_ORIGIN: http://localhost:3000
     depends_on:
       api:
         condition: service_healthy

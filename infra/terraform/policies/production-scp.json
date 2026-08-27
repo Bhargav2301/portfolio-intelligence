@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyOutsideApprovedRegions",
+      "Effect": "Deny",
+      "NotAction": [
+        "a4b:*", "acm:*", "aws-marketplace-management:*", "aws-marketplace:*",
+        "aws-portal:*", "budgets:*", "ce:*", "chime:*", "cloudfront:*",
+        "config:*", "cur:*", "directconnect:*", "ec2:DescribeRegions",
+        "fms:*", "globalaccelerator:*", "health:*", "iam:*", "importexport:*",
+        "kms:*", "mobileanalytics:*", "networkmanager:*", "organizations:*",
+        "pricing:*", "route53:*", "route53domains:*", "s3:GetAccountPublic*",
+        "s3:ListAllMyBuckets", "shield:*", "sts:*", "support:*", "trustedadvisor:*", "waf:*", "wafv2:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": { "aws:RequestedRegion": ["ap-south-1", "ap-south-2", "us-east-1"] }
+      }
+    },
+    {
+      "Sid": "DenyDisablingSecurityControls",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:DeleteTrail", "cloudtrail:StopLogging", "config:DeleteConfigurationRecorder",
+        "config:StopConfigurationRecorder", "guardduty:DeleteDetector", "guardduty:DisassociateFromAdministratorAccount",
+        "securityhub:DisableSecurityHub"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyPublicS3ACLs",
+      "Effect": "Deny",
+      "Action": ["s3:PutBucketAcl", "s3:PutObjectAcl"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-acl": ["public-read", "public-read-write", "authenticated-read"]
+        }
+      }
+    },
+    {
+      "Sid": "DenyIAMUserAccessKeys",
+      "Effect": "Deny",
+      "Action": ["iam:CreateAccessKey"],
+      "Resource": "arn:aws:iam::*:user/*"
+    }
+  ]
+}

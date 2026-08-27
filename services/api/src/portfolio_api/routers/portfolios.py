@@ -12,7 +12,6 @@ from portfolio_api.models import AuditEvent, Portfolio
 from portfolio_api.schemas import PortfolioCreate, PortfolioRead
 from portfolio_api.tenant import RequestContext, request_context
 
-
 router = APIRouter(prefix="/v1/portfolios", tags=["portfolios"])
 
 

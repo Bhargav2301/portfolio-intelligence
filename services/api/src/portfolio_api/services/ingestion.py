@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-
 PDF_SIGNATURE = b"%PDF-"
 OLE_SIGNATURE = bytes.fromhex("D0CF11E0A1B11AE1")
 ZIP_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
@@ -113,7 +112,9 @@ def _summarize_pdf(content: bytes) -> tuple[dict[str, Any], list[str], str]:
     try:
         reader = PdfReader(io.BytesIO(content), strict=True)
     except Exception as error:
-        raise UnsafeFileError("PDF_PARSE_FAILED", "The PDF structure could not be read safely.") from error
+        raise UnsafeFileError(
+            "PDF_PARSE_FAILED", "The PDF structure could not be read safely."
+        ) from error
     if reader.is_encrypted:
         return (
             {"pages": None, "encrypted": True},
@@ -183,7 +184,9 @@ def _summarize_xlsx(content: bytes) -> tuple[dict[str, Any], list[str]]:
             keep_links=False,
         )
     except Exception as error:
-        raise UnsafeFileError("XLSX_PARSE_FAILED", "The workbook could not be read safely.") from error
+        raise UnsafeFileError(
+            "XLSX_PARSE_FAILED", "The workbook could not be read safely."
+        ) from error
     if len(workbook.sheetnames) > MAX_WORKBOOK_SHEETS:
         workbook.close()
         raise UnsafeFileError(
@@ -232,7 +235,9 @@ def _summarize_xls(content: bytes) -> tuple[dict[str, Any], list[str]]:
     try:
         workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
     except Exception as error:
-        raise UnsafeFileError("XLS_PARSE_FAILED", "The legacy workbook could not be read.") from error
+        raise UnsafeFileError(
+            "XLS_PARSE_FAILED", "The legacy workbook could not be read."
+        ) from error
     if workbook.nsheets > MAX_WORKBOOK_SHEETS:
         workbook.release_resources()
         raise UnsafeFileError("WORKBOOK_SHEET_LIMIT", "Workbook has too many sheets.")

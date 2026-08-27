@@ -59,6 +59,7 @@ Do not reuse any generated value as a personal password.
 Variables:
 
 - OIDC_ISSUER_URL
+- OIDC_OAUTH_BASE_URL
 - OIDC_CLIENT_ID
 - OIDC_CLIENT_SECRET
 - OIDC_REDIRECT_URI
@@ -77,7 +78,9 @@ Steps:
 8. Configure short sessions and server-side revocation.
 9. Test login, logout, expiry, revocation, and cross-tenant access before public launch.
 
-Production mode refuses to start if OIDC is missing. In this foundation milestone it also refuses to start even when values are present, until OIDC membership enforcement and the production security gate are implemented and tested.
+Production mode refuses to start if OIDC or the signed traffic gates are missing. The BFF now uses
+opaque Redis sessions and Core revalidates membership on every request; production traffic remains
+disabled until the staging identity report is signed.
 
 ### Production PostgreSQL
 
@@ -85,8 +88,11 @@ Variables:
 
 - DATABASE_URL
 - POSTGRES_CHECKPOINT_DSN
+- RDS_IAM_AUTH=true
 
-Use separate application and migration users. The runtime user must not be a superuser or table owner, because those privileges can bypass intended row-level security. Require TLS, backups, point-in-time recovery, and tested restore.
+Use separate IAM-authenticated application, checkpoint, reporting, order, and migration users
+through RDS Proxy. Runtime users are non-superuser, non-owner, and `NOBYPASSRLS`; every tenant table
+forces RLS. Require TLS, backups, point-in-time recovery, and a measured restore.
 
 DATABASE_URL belongs to the Core API. POSTGRES_CHECKPOINT_DSN belongs to the isolated LangGraph service. They may target the same cluster but should use separate schemas and least-privilege users.
 

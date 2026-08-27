@@ -27,4 +27,3 @@ def allocate_available_cash(total_cash: Decimal, protected_cash: Decimal) -> Dec
     if total_cash < 0 or protected_cash < 0:
         raise ValueError("cash values cannot be negative")
     return max(Decimal(0), total_cash - protected_cash)
-

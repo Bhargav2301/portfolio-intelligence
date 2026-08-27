@@ -25,7 +25,9 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 | AI provider connection | Configured through secrets; requires a key |
 | PostgreSQL, Redis, and private quarantine object storage | Included in local Docker stack |
 | Malware scanner | Implemented; optional local Docker profile, mandatory in production |
-| Full transaction reconciliation and publication | Next milestone |
+| Human-confirmed manual ledger publication | Implemented append-only API; file reconciliation UI is next |
+| Holdings, cash, P/L, and concentration monitors | Implemented deterministic foundation |
+| TradingAgents research architecture | Adapted as isolated, non-executable analyst/risk subgraph |
 | Production authentication and registered-adviser mode | Not enabled |
 | Upstox read-only connection | Contract and secrets prepared; implementation pending |
 | Trade execution | Intentionally absent |
@@ -86,9 +88,9 @@ The core rule is simple: AI explains data; it does not create financial truth.
 2. The API checks size, signature, type, and dangerous content.
 3. A parser reads safe content without running macros, formulas, or PDF instructions.
 4. Candidate rows wait for reconciliation and user approval.
-5. Approved rows enter the append-only ledger.
+5. Approved rows enter the append-only ledger; manual events require explicit publication confirmation.
 6. Deterministic code calculates portfolio metrics.
-7. LangGraph agents receive typed metrics, evidence, rules, and an as-of timestamp.
+7. The adapted TradingAgents research panel receives typed metrics, evidence, rules, and an as-of timestamp.
 8. A policy gate blocks unsupported or constraint-breaking output.
 9. The user receives an answer with evidence and remains the decision-maker.
 
@@ -262,6 +264,9 @@ Report security issues privately using [SECURITY.md](SECURITY.md).
 6. [QA and Test Plan](docs/requirements/06_QA_and_Test_Plan.md)
 
 Implementation must trace back to these documents. If code and a requirement conflict, update the decision record before changing behavior.
+
+See [Unified architecture and delivery roadmap](docs/UNIFIED_ARCHITECTURE_AND_ROADMAP.md)
+for the integration boundary, implemented endpoints, production topology, and remaining launch gates.
 
 ## Delivery roadmap
 

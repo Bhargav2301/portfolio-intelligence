@@ -4,9 +4,19 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   AgentResult,
+  AnalyticsSnapshot,
+  ExtractedRecord,
+  ImportBatch,
+  LedgerSnapshot,
+  MonitorSnapshot,
   Portfolio,
-  UploadResult,
+  PublicationAccepted,
+  ReconciliationCase,
+  UploadCompleted,
+  UploadInitiated,
   requestJson,
+  requestJsonWithMetadata,
+  uploadObject,
 } from "@/lib/api";
 
 
@@ -34,8 +44,21 @@ export default function PortfolioWorkspace() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
-  const [upload, setUpload] = useState<UploadResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadName, setUploadName] = useState("");
+  const [records, setRecords] = useState<ExtractedRecord[]>([]);
+  const [cases, setCases] = useState<ReconciliationCase[]>([]);
+  const [batch, setBatch] = useState<ImportBatch | null>(null);
+  const [batchEtag, setBatchEtag] = useState<string | null>(null);
+  const [includedIds, setIncludedIds] = useState<Set<string>>(new Set());
+  const [excludedReasons, setExcludedReasons] = useState<Record<string, string>>({});
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [publication, setPublication] = useState<PublicationAccepted | null>(null);
   const [agent, setAgent] = useState<AgentResult | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsSnapshot | null>(null);
+  const [ledger, setLedger] = useState<LedgerSnapshot | null>(null);
+  const [monitoring, setMonitoring] = useState<MonitorSnapshot | null>(null);
+  const [instrument, setInstrument] = useState("");
   const [chatQuestion, setChatQuestion] = useState(
     "What should I review before making any investment decision?",
   );
@@ -63,6 +86,27 @@ export default function PortfolioWorkspace() {
   useEffect(() => {
     void loadPortfolios();
   }, [loadPortfolios]);
+
+  const loadIntelligence = useCallback(async (portfolioId: string) => {
+    if (!portfolioId) return;
+    try {
+      const [analyticsResult, ledgerResult, monitorResult] = await Promise.all([
+        requestJson<AnalyticsSnapshot>(`/api/core/v1/portfolios/${portfolioId}/analytics/latest`),
+        requestJson<LedgerSnapshot>(`/api/core/v1/portfolios/${portfolioId}/holdings`),
+        requestJson<MonitorSnapshot>(`/api/core/v1/portfolios/${portfolioId}/monitors/latest`),
+      ]);
+      setAnalytics(analyticsResult);
+      setLedger(ledgerResult);
+      setMonitoring(monitorResult);
+      setInstrument((current) => current || ledgerResult.holdings[0]?.instrument_reference || "");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not load portfolio intelligence.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadIntelligence(selected?.id ?? "");
+  }, [loadIntelligence, selected?.id]);
 
   async function createPortfolio(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,20 +137,140 @@ export default function PortfolioWorkspace() {
     event.preventDefault();
     if (!selected) return;
     setError("");
-    setNotice("Checking file structure and safety…");
-    setUpload(null);
+    setNotice("Creating a checksum and secure quarantine grant…");
+    setRecords([]);
+    setCases([]);
+    setBatch(null);
+    setPublication(null);
     const form = new FormData(event.currentTarget);
-    form.set("portfolio_id", selected.id);
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      setError("Choose a certified CSV file.");
+      return;
+    }
+    setUploading(true);
     try {
-      const result = await requestJson<UploadResult>("/api/core/v1/uploads", {
+      const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const initiated = await requestJson<UploadInitiated>("/api/core/v1/uploads", {
         method: "POST",
-        body: form,
+        body: JSON.stringify({
+          portfolio_id: selected.id,
+          original_name: file.name,
+          source_role: "brokerage_ledger",
+          content_type: "text/csv",
+          size_bytes: file.size,
+          sha256,
+        }),
       });
-      setUpload(result);
-      setNotice("File accepted into quarantine. Review is required before publication.");
+      await uploadObject(initiated, file);
+      setNotice("Scanning and parsing the certified ledger…");
+      const completed = await requestJson<UploadCompleted>(
+        `/api/core/v1/uploads/${initiated.upload_id}/complete`,
+        { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
+      );
+      const [recordResult, caseResult, batchResult] = await Promise.all([
+        requestJson<ExtractedRecord[]>(`/api/core/v1/extractions/${completed.extraction_run_id}/records`),
+        requestJson<ReconciliationCase[]>(`/api/core/v1/import-batches/${completed.import_batch_id}/reconciliation-cases`),
+        requestJsonWithMetadata<ImportBatch>(`/api/core/v1/import-batches/${completed.import_batch_id}`),
+      ]);
+      setUploadName(file.name);
+      setRecords(recordResult);
+      setIncludedIds(new Set(recordResult.map((record) => record.id)));
+      setCases(caseResult);
+      setBatch(batchResult.data);
+      setBatchEtag(batchResult.etag);
+      setNotice("Quarantine checks completed. Review every row before validation.");
     } catch (caught) {
       setNotice("");
       setError(caught instanceof Error ? caught.message : "File could not be accepted.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function toggleRecord(recordId: string, include: boolean) {
+    setIncludedIds((current) => {
+      const next = new Set(current);
+      if (include) next.add(recordId); else next.delete(recordId);
+      return next;
+    });
+    setExcludedReasons((current) => {
+      const next = { ...current };
+      if (include) delete next[recordId];
+      else next[recordId] = next[recordId] || "Excluded by the portfolio owner during review.";
+      return next;
+    });
+    setAcknowledged(false);
+  }
+
+  async function resolveCase(item: ReconciliationCase) {
+    setError("");
+    try {
+      const resolved = await requestJson<ReconciliationCase>(
+        `/api/core/v1/reconciliation-cases/${item.id}/resolve`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            resolution: "exclude",
+            reason: "The owner reviewed and explicitly excluded this unmapped input from R1 publication.",
+          }),
+        },
+      );
+      setCases((current) => current.map((candidate) => candidate.id === resolved.id ? resolved : candidate));
+      setNotice("Reconciliation decision recorded in the audit trail.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The reconciliation case could not be resolved.");
+    }
+  }
+
+  async function validateBatch() {
+    if (!batch || !batchEtag) return;
+    setError("");
+    try {
+      const result = await requestJsonWithMetadata<ImportBatch>(
+        `/api/core/v1/import-batches/${batch.id}/validate`,
+        {
+          method: "POST",
+          headers: { "If-Match": batchEtag, "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({
+            included_record_ids: [...includedIds],
+            excluded_records: excludedReasons,
+          }),
+        },
+      );
+      setBatch(result.data);
+      setBatchEtag(result.etag);
+      setAcknowledged(false);
+      setNotice("Validation passed. Owner acknowledgment and recent MFA are required to publish.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Batch validation failed.");
+    }
+  }
+
+  async function publishBatch() {
+    if (!batch || !batchEtag || !batch.validated_hash || !acknowledged) return;
+    setError("");
+    try {
+      const result = await requestJson<PublicationAccepted>(
+        `/api/core/v1/import-batches/${batch.id}/publish`,
+        {
+          method: "POST",
+          headers: { "If-Match": batchEtag, "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({
+            included_record_ids: [...includedIds],
+            excluded_records: excludedReasons,
+            validated_hash: batch.validated_hash,
+            acknowledgment: "I reviewed this batch and authorize immutable ledger publication.",
+          }),
+        },
+      );
+      setPublication(result);
+      setBatch((current) => current ? { ...current, state: "published", published_ledger_version: result.ledger_version } : current);
+      setNotice(`Ledger version ${result.ledger_version} was published atomically.`);
+      await loadIntelligence(selected.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Ledger publication failed.");
     }
   }
 
@@ -122,6 +286,7 @@ export default function PortfolioWorkspace() {
         body: JSON.stringify({
           portfolio_id: selected.id,
           question: chatQuestion,
+          instrument: instrument || undefined,
         }),
       });
       setAgent(result);
@@ -192,8 +357,19 @@ export default function PortfolioWorkspace() {
                   value={selected?.id ?? ""}
                   onChange={(event) => {
                     setSelectedId(event.target.value);
-                    setUpload(null);
+                    setUploadName("");
+                    setRecords([]);
+                    setCases([]);
+                    setBatch(null);
+                    setBatchEtag(null);
+                    setIncludedIds(new Set());
+                    setExcludedReasons({});
+                    setPublication(null);
                     setAgent(null);
+                    setAnalytics(null);
+                    setLedger(null);
+                    setMonitoring(null);
+                    setInstrument("");
                   }}
                 >
                   {portfolios.map((portfolio) => (
@@ -251,11 +427,15 @@ export default function PortfolioWorkspace() {
             </section>
           ) : (
             <>
-              <section className="quality-banner" aria-label="Portfolio data status">
-                <div className="quality-icon" aria-hidden="true">!</div>
+              <section className={`quality-banner ${analytics?.quality_state === "trusted" ? "trusted" : ""}`} aria-label="Portfolio data status">
+                <div className="quality-icon" aria-hidden="true">{analytics?.quality_state === "trusted" ? "✓" : "!"}</div>
                 <div>
-                  <strong>Portfolio data is partial</strong>
-                  <p>No approved ledger has been published. AI analysis is limited until reconciliation.</p>
+                  <strong>Portfolio data is {analytics?.quality_state ?? "loading"}</strong>
+                  <p>
+                    {analytics?.quality_state === "trusted"
+                      ? `Ledger version ${analytics.ledger_version} is authoritative; market-history metrics remain separately gated.`
+                      : "No approved ledger has been published. AI analysis is limited until reconciliation."}
+                  </p>
                 </div>
                 <a href="#data">Add or review data</a>
               </section>
@@ -263,27 +443,29 @@ export default function PortfolioWorkspace() {
               <section id="overview" aria-labelledby="overview-title">
                 <div className="section-heading horizontal">
                   <div>
-                    <span className="eyebrow">As of now · No market data loaded</span>
+                    <span className="eyebrow">
+                      {analytics ? `As of ${new Date(analytics.as_of).toLocaleString("en-IN")}` : "Loading snapshot"}
+                    </span>
                     <h2 id="overview-title">Portfolio overview</h2>
                   </div>
-                  <span className="status-text"><i aria-hidden="true" /> Needs review</span>
+                  <span className="status-text"><i aria-hidden="true" /> {monitoring?.state ?? "Loading"}</span>
                 </div>
 
                 <div className="metric-grid">
                   <article className="metric-card">
                     <span>Current value</span>
-                    <strong>—</strong>
-                    <small>Waiting for approved holdings</small>
+                    <strong>{formatInr(analytics?.metrics.current_value)}</strong>
+                    <small>{ledger ? `${ledger.holdings.length} published holding(s)` : "Waiting for ledger"}</small>
                   </article>
                   <article className="metric-card">
                     <span>Net invested</span>
-                    <strong>—</strong>
-                    <small>Waiting for transaction history</small>
+                    <strong>{formatInr(analytics?.metrics.net_invested_capital)}</strong>
+                    <small>Net external cash events</small>
                   </article>
                   <article className="metric-card">
-                    <span>Return vs benchmark</span>
-                    <strong>—</strong>
-                    <small>No return claim without cash flows</small>
+                    <span>Cash balance</span>
+                    <strong>{formatInr(analytics?.metrics.cash_balance)}</strong>
+                    <small>{formatInr(ledger?.available_cash)} available after reserve</small>
                   </article>
                   <article className="metric-card protected">
                     <span>Protected reserve</span>
@@ -293,18 +475,32 @@ export default function PortfolioWorkspace() {
                 </div>
 
                 <div className="insight-grid">
-                  <article className="panel chart-placeholder">
+                  <article className="panel" id="holdings">
                     <div className="panel-head">
                       <div>
-                        <span className="eyebrow">Performance</span>
-                        <h3>Portfolio vs benchmark</h3>
+                        <span className="eyebrow">Authoritative ledger</span>
+                        <h3>Holdings</h3>
                       </div>
-                      <span className="period">1Y</span>
+                      <span className="period">v{ledger?.ledger_version ?? 0}</span>
                     </div>
-                    <div className="empty-chart" role="img" aria-label="No performance data available">
-                      <div className="baseline" />
-                      <p>Publish reconciled transactions to calculate performance.</p>
-                    </div>
+                    {ledger && ledger.holdings.length > 0 ? (
+                      <div className="table-scroll">
+                        <table className="holdings-table">
+                          <thead><tr><th>Instrument</th><th>Quantity</th><th>Value</th><th>Weight</th><th>Unrealized P/L</th></tr></thead>
+                          <tbody>{ledger.holdings.map((holding) => (
+                            <tr key={holding.instrument_reference}>
+                              <th>{holding.instrument_reference}</th>
+                              <td>{Number(holding.quantity).toLocaleString("en-IN")}</td>
+                              <td>{formatInr(holding.market_value)}</td>
+                              <td>{holding.weight_percent ? `${holding.weight_percent}%` : "—"}</td>
+                              <td>{formatInr(holding.unrealized_pnl)}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="empty-chart" role="status"><p>Publish reconciled ledger events to calculate holdings.</p></div>
+                    )}
                   </article>
 
                   <article className="panel" id="rules">
@@ -335,6 +531,28 @@ export default function PortfolioWorkspace() {
                 </div>
               </section>
 
+              <section className="panel monitor-panel" id="monitors" aria-labelledby="monitor-title">
+                <div className="panel-head">
+                  <div>
+                    <span className="eyebrow">Automated, deterministic checks</span>
+                    <h2 id="monitor-title">Portfolio monitors</h2>
+                  </div>
+                  <span className={`monitor-state ${monitoring?.state ?? ""}`}>{monitoring?.state ?? "Loading"}</span>
+                </div>
+                {monitoring && monitoring.alerts.length > 0 ? (
+                  <div className="alert-grid">{monitoring.alerts.map((item) => (
+                    <article className={`monitor-alert ${item.severity}`} key={item.id}>
+                      <span>{item.kind.replaceAll("_", " ")}</span>
+                      <strong>{item.title}</strong>
+                      <p>{item.detail}</p>
+                      {item.observed_value && <small>Observed {item.observed_value} · Threshold {item.threshold_value}</small>}
+                    </article>
+                  ))}</div>
+                ) : (
+                  <p className="panel-copy">No rule breach is present in the latest published snapshot.</p>
+                )}
+              </section>
+
               <section className="two-column" id="data">
                 <article className="panel">
                   <div className="panel-head">
@@ -345,41 +563,128 @@ export default function PortfolioWorkspace() {
                     <span className="privacy-tag">Quarantined</span>
                   </div>
                   <p className="panel-copy">
-                    Brokerage files can become ledger candidates. Research PDFs remain evidence only.
+                    R1 accepts only the certified <code>spi-ledger-csv/v1</code> format. Files remain
+                    quarantined until every row is reviewed and an owner publishes with recent MFA.
                   </p>
                   <form className="upload-form" onSubmit={uploadFile}>
-                    <label>
-                      <span>What does this file represent?</span>
-                      <select name="source_role" defaultValue="brokerage_ledger">
-                        <option value="brokerage_ledger">Brokerage transaction/tax-lot ledger</option>
-                        <option value="broker_statement">Broker statement snapshot</option>
-                        <option value="pms_statement">PMS statement snapshot</option>
-                        <option value="research">Research evidence</option>
-                      </select>
-                    </label>
                     <label className="file-drop">
                       <span className="upload-arrow" aria-hidden="true">↑</span>
-                      <strong>Choose PDF, XLS, XLSX, or CSV</strong>
-                      <small>Maximum 50 MB · Macros are rejected</small>
-                      <input name="file" type="file" accept=".pdf,.xls,.xlsx,.csv" required />
+                      <strong>Choose a certified ledger CSV</strong>
+                      <small>Maximum 50 MB · SHA-256 verified · formula cells rejected</small>
+                      <input name="file" type="file" accept=".csv,text/csv" required />
                     </label>
-                    <button className="primary-button" type="submit">Check and quarantine file</button>
+                    <button className="primary-button" type="submit" disabled={uploading}>
+                      {uploading ? "Checking quarantine…" : "Securely upload and reconcile"}
+                    </button>
                   </form>
 
-                  {upload && (
-                    <div className="upload-result" role="status">
-                      <div>
-                        <strong>{upload.original_name}</strong>
-                        <span>{upload.detected_type}</span>
+                  {batch && (
+                    <div className="reconciliation-workbench" aria-live="polite">
+                      <div className="workbench-summary">
+                        <div><span>Source</span><strong>{uploadName}</strong></div>
+                        <div><span>Batch state</span><strong>{batch.state.replaceAll("_", " ")}</strong></div>
+                        <div><span>Base ledger</span><strong>v{batch.base_ledger_version}</strong></div>
+                        <div><span>Rows</span><strong>{records.length}</strong></div>
                       </div>
-                      <dl>
-                        <div><dt>Status</dt><dd>{upload.state.replaceAll("_", " ")}</dd></div>
-                        <div><dt>Authority</dt><dd>{upload.authority_level.replaceAll("_", " ")}</dd></div>
-                        <div><dt>Size</dt><dd>{Math.ceil(upload.size_bytes / 1024)} KB</dd></div>
-                      </dl>
-                      {(upload.parser_summary.warnings ?? []).map((warning) => (
-                        <p key={warning}>Review: {warning}</p>
+
+                      {cases.length > 0 && (
+                        <div className="case-list">
+                          <h3>Reconciliation exceptions</h3>
+                          {cases.map((item) => (
+                            <div className={`case-item ${item.state}`} key={item.id}>
+                              <div>
+                                <strong>{item.kind.replaceAll("_", " ")}</strong>
+                                <small>{String(item.details.message ?? "Manual decision required.")}</small>
+                              </div>
+                              {item.state === "open" ? (
+                                <button className="secondary-button" type="button" onClick={() => void resolveCase(item)}>
+                                  Exclude and audit
+                                </button>
+                              ) : <span>Resolved</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="table-scroll">
+                        <table className="reconciliation-table">
+                          <caption>Normalized records with source-row lineage and inclusion decisions</caption>
+                          <thead><tr>
+                            <th>Include</th><th>Row</th><th>Event</th><th>Instrument</th>
+                            <th>Quantity</th><th>Price</th><th>Cash delta</th><th>Confidence</th>
+                          </tr></thead>
+                          <tbody>{records.map((record) => {
+                            const included = includedIds.has(record.id);
+                            return (
+                              <tr key={record.id} className={included ? "" : "excluded-row"}>
+                                <td><input
+                                  type="checkbox"
+                                  checked={included}
+                                  onChange={(event) => toggleRecord(record.id, event.target.checked)}
+                                  aria-label={`Include source row ${record.source_row}`}
+                                  disabled={batch.state === "published"}
+                                /></td>
+                                <td>{record.source_row}</td>
+                                <td>{String(record.normalized_data.event_type ?? "—")}</td>
+                                <td>{String(record.normalized_data.symbol ?? record.normalized_data.instrument_id ?? "—")}</td>
+                                <td>{String(record.normalized_data.quantity ?? "—")}</td>
+                                <td>{String(record.normalized_data.price ?? "—")}</td>
+                                <td>{String(record.normalized_data.cash_delta ?? "—")}</td>
+                                <td>{String(record.confidence)}</td>
+                              </tr>
+                            );
+                          })}</tbody>
+                        </table>
+                      </div>
+
+                      {Object.keys(excludedReasons).map((recordId) => (
+                        <label className="exclusion-reason" key={recordId}>
+                          <span>Reason for excluding row {records.find((item) => item.id === recordId)?.source_row}</span>
+                          <input
+                            value={excludedReasons[recordId]}
+                            minLength={4}
+                            onChange={(event) => setExcludedReasons((current) => ({ ...current, [recordId]: event.target.value }))}
+                            disabled={batch.state === "published"}
+                          />
+                        </label>
                       ))}
+
+                      {batch.state === "draft" && (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => void validateBatch()}
+                          disabled={cases.some((item) => item.state === "open") || includedIds.size === 0}
+                        >
+                          Validate reviewed selection
+                        </button>
+                      )}
+
+                      {batch.state === "approved" && (
+                        <div className="publication-review">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={acknowledged}
+                              onChange={(event) => setAcknowledged(event.target.checked)}
+                            />
+                            <span>I reviewed this batch and authorize immutable ledger publication.</span>
+                          </label>
+                          <button className="primary-button dark" type="button" disabled={!acknowledged} onClick={() => void publishBatch()}>
+                            Publish immutable ledger version
+                          </button>
+                          <a href="/api/auth/login?step_up=1&return_to=%2F%23data">Refresh MFA before publication</a>
+                        </div>
+                      )}
+
+                      {publication && (
+                        <div className="publication-receipt" role="status">
+                          <strong>Ledger v{publication.ledger_version} published</strong>
+                          <span>Batch {publication.import_batch_id}</span>
+                          <span>Audit receipt {publication.audit_event_id}</span>
+                          <span>Agents remain proposal-only; no order was created.</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </article>
@@ -396,6 +701,17 @@ export default function PortfolioWorkspace() {
                     The agent can explain available data and limits. It cannot create numbers or place a trade.
                   </p>
                   <form className="chat-form" onSubmit={askAgent}>
+                    <label>
+                      <span>Security focus (optional)</span>
+                      <select value={instrument} onChange={(event) => setInstrument(event.target.value)}>
+                        <option value="">Portfolio-wide review</option>
+                        {(ledger?.holdings ?? []).map((holding) => (
+                          <option key={holding.instrument_reference} value={holding.instrument_reference}>
+                            {holding.instrument_reference}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <label className="sr-only" htmlFor="question">Question</label>
                     <textarea
                       id="question"
@@ -416,6 +732,25 @@ export default function PortfolioWorkspace() {
                         <span>{agent.evidence.length} evidence items</span>
                       </div>
                       <p>{agent.answer}</p>
+                      {agent.proposal.title && (
+                        <section className="proposal-card" aria-label="Review proposal">
+                          <span>{agent.proposal.status?.replaceAll("_", " ")}</span>
+                          <strong>{agent.proposal.title}</strong>
+                          <small>Proposal only · execution capability: {agent.proposal.can_execute ? "enabled" : "disabled"}</small>
+                        </section>
+                      )}
+                      {agent.evidence.length > 0 && (
+                        <details>
+                          <summary>Evidence ({agent.evidence.length})</summary>
+                          <ul>{agent.evidence.map((item, index) => (
+                            <li key={String(item.id ?? index)}>
+                              <a href={"/api/core" + String(item.uri ?? "")} target="_blank">
+                                {String(item.title ?? item.id ?? "Evidence")}
+                              </a>
+                            </li>
+                          ))}</ul>
+                        </details>
+                      )}
                       {agent.limitations.length > 0 && (
                         <details>
                           <summary>Limitations and controls</summary>

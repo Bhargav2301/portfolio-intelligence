@@ -7,7 +7,6 @@ import os
 import secrets
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / ".env.example"
 TARGET = ROOT / ".env"
@@ -18,7 +17,9 @@ def generated_values() -> dict[str, str]:
         "POSTGRES_PASSWORD": secrets.token_urlsafe(32),
         "OBJECT_STORAGE_SECRET_KEY": secrets.token_urlsafe(32),
         "SESSION_SECRET": secrets.token_urlsafe(48),
-        "FIELD_ENCRYPTION_KEY": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
+        "FIELD_ENCRYPTION_KEY": base64.urlsafe_b64encode(
+            secrets.token_bytes(32)
+        ).decode(),
     }
 
 
@@ -61,4 +62,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

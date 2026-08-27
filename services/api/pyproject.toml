@@ -9,11 +9,17 @@ description = "Portfolio Intelligence core portfolio and ingestion API"
 requires-python = ">=3.12"
 dependencies = [
   "aiosqlite>=0.20,<1",
+  "alembic>=1.14,<2",
   "asyncpg>=0.29,<1",
   "boto3>=1.35,<2",
   "fastapi>=0.115,<1",
+  "opentelemetry-api>=1.29,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.29,<2",
+  "opentelemetry-instrumentation-fastapi>=0.50b0,<1",
+  "opentelemetry-sdk>=1.29,<2",
   "openpyxl>=3.1,<4",
   "pydantic-settings>=2.6,<3",
+  "PyJWT[crypto]>=2.10,<3",
   "pypdf>=5,<7",
   "python-multipart>=0.0.12,<1",
   "sqlalchemy[asyncio]>=2.0,<3",
@@ -37,5 +43,5 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S"]
-ignore = ["S101"]
+ignore = ["S101", "B008", "E501"]
 

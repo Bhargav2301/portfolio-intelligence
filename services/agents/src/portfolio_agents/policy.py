@@ -4,9 +4,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 EXECUTION_PATTERNS = (
     re.compile(r"\b(place|submit|execute)\s+(an?\s+)?(order|trade)\b", re.IGNORECASE),
+    re.compile(r"\b(buy|sell)\s+(it|now|\d+|all|shares?)\b", re.IGNORECASE),
     re.compile(r"\btransfer\s+funds?\b", re.IGNORECASE),
     re.compile(r"\buse\s+(the\s+)?protected\s+(cash|reserve)\b", re.IGNORECASE),
 )
@@ -28,7 +28,8 @@ def evaluate_request(question: str, snapshot: dict[str, Any]) -> PolicyDecision:
     if quality_state != "trusted":
         reasons.append("PORTFOLIO_DATA_NOT_TRUSTED")
         limitations.append(
-            "Portfolio data is incomplete or unreconciled, so analysis is limited to setup and review."
+            "Portfolio data is incomplete or unreconciled, so analysis is limited to "
+            "setup and review."
         )
     rules = snapshot.get("rules") or {}
     if rules.get("equal_weighting_allowed") is False:
@@ -51,8 +52,9 @@ def safe_response_text(text: str) -> str:
         r"\byou should sell\b": "one scenario to examine is reducing exposure to",
         r"\bplace an order\b": "review the scenario outside this read-only tool",
         r"\bexecute the trade\b": "record a human decision after review",
+        r"\bbuy now\b": "review an increased-exposure scenario",
+        r"\bsell now\b": "review a reduced-exposure scenario",
     }
     for pattern, replacement in replacements.items():
         result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
     return result
-

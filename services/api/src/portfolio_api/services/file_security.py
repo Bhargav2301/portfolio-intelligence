@@ -39,4 +39,3 @@ def scan_with_clamav(content: bytes, host: str, port: int, timeout: float = 10.0
     if not response.endswith("OK"):
         raise MalwareScannerUnavailable(f"Unexpected ClamAV response: {response}")
     return ScanResult(clean=True, engine="clamav", message=response)
-

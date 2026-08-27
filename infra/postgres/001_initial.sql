@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS portfolios (
     valuation_timezone varchar(64) NOT NULL DEFAULT 'Asia/Kolkata',
     status varchar(24) NOT NULL DEFAULT 'active',
     version integer NOT NULL DEFAULT 1,
-    rules jsonb NOT NULL DEFAULT '{"equal_weighting_allowed":false,"protected_cash":{"amount":"2500000.00","currency":"INR"},"review_cadence":"weekly"}'::jsonb,
+    rules jsonb NOT NULL DEFAULT '{"equal_weighting_allowed":false,"protected_cash":{"amount":"2500000.00","currency":"INR"},"max_position_weight_percent":"25.00","review_cadence":"weekly"}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT uq_portfolio_tenant_name UNIQUE (tenant_id, name),
@@ -101,6 +101,12 @@ ALTER TABLE portfolios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE uploads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE tenants FORCE ROW LEVEL SECURITY;
+ALTER TABLE portfolios FORCE ROW LEVEL SECURITY;
+ALTER TABLE uploads FORCE ROW LEVEL SECURITY;
+ALTER TABLE transactions FORCE ROW LEVEL SECURITY;
+ALTER TABLE audit_events FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation_tenants ON tenants
     USING (id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)

@@ -1,0 +1,24 @@
+environment                       = "production"
+aws_region                        = "ap-south-1"
+vpc_cidr                         = "10.42.0.0/16"
+public_app_domain                 = "portfolio.example.com"
+certificate_arn                   = "arn:aws:acm:ap-south-1:222222222222:certificate/replace"
+cloudfront_certificate_arn        = "arn:aws:acm:us-east-1:222222222222:certificate/replace"
+route53_zone_id                   = "ZREPLACE"
+github_repository                 = "owner/super-portfolio-intelligence"
+github_oidc_provider_arn          = "arn:aws:iam::222222222222:oidc-provider/token.actions.githubusercontent.com"
+log_archive_bucket_arn            = "arn:aws:s3:::spi-security-log-archive"
+terraform_state_bucket_arn         = "arn:aws:s3:::spi-security-terraform-state"
+redis_auth_token                  = "INJECT_WITH_TF_VAR_redis_auth_token"
+
+enable_services                   = false
+identity_gate_passed              = false
+rls_gate_passed                   = false
+telemetry_gate_passed             = false
+agent_evaluation_gate_passed       = false
+ingestion_gate_passed              = false
+research_provider_approved         = false
+approved_openai_model              = ""
+enable_live_orders                = false
+legal_approval_recorded           = false
+upstox_live_approval_recorded      = false

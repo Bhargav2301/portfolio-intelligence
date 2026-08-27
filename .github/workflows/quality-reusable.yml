@@ -1,0 +1,44 @@
+name: Reusable production quality gate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: portfolio_intelligence
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d portfolio_intelligence"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/portfolio_intelligence
+      TEST_POSTGRES_ADMIN_DSN: postgresql://postgres:postgres@localhost:5432/portfolio_intelligence
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm }
+      - run: pip install -e "services/api[dev]" -e "services/agents[dev]"
+      - run: alembic upgrade head
+      - run: python -m unittest discover -s services/api/tests -p "test_*.py" -v
+      - run: python -m unittest discover -s services/agents/tests -p "test_*.py" -v
+      - run: python scripts/verify_repository.py
+      - run: npm ci
+      - run: npm run build:web
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.10.5" }
+      - run: terraform -chdir=infra/terraform fmt -check -recursive
+      - run: terraform -chdir=infra/terraform init -backend=false
+      - run: terraform -chdir=infra/terraform validate

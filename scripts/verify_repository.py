@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = (
     "README.md",
@@ -49,6 +48,7 @@ def code_files() -> list[Path]:
         if path.is_file()
         and path.suffix in CODE_SUFFIXES
         and ".next" not in path.parts
+        and ".venv" not in path.parts
         and "node_modules" not in path.parts
     ]
 
@@ -61,6 +61,7 @@ def text_files() -> list[Path]:
         if path.is_file()
         and (path.suffix in TEXT_SUFFIXES or path.name in special_names)
         and ".next" not in path.parts
+        and ".venv" not in path.parts
         and "node_modules" not in path.parts
     ]
 

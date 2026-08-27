@@ -40,3 +40,14 @@ Thumbs.db
 .coverage
 htmlcov/
 coverage/
+
+# Terraform local state and provider cache (commit .terraform.lock.hcl)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
