@@ -3,8 +3,8 @@
 R1 code completion does not imply that R2/R3 are production-approved; this checkpoint adds the
 technical vertical slice while preserving every external exit gate.
 
-Date: 27 August 2026  
-Branch: `codex/r2-r3-evidence-analytics`  
+Date: 27 August 2026
+Branch: `codex/r2-r3-evidence-analytics`
 TradingAgents reference: `TauricResearch/TradingAgents@a33fd4c0f134485a43553a2c23a63cb14adbd88f`
 
 ## Outcome
@@ -211,7 +211,7 @@ production.
 | RLS/composite FK | 6 PostgreSQL tests plus forward Alembic migration | Pass in CI run 33068700407 |
 | Terraform topology | Format, provider initialization, and validation | Pass in CI run 33068700407 |
 | Web type/build | Next.js 16 optimized build and TypeScript | Pass locally and in CI |
-| Container vertical slice | MinIO upload and browser-to-Agent flow | Required PR gate; must pass before merge |
+| Container vertical slice | MinIO upload and browser-to-Agent flow | Pass in CI run 33069158486 |
 | Licensed provider | Contract, credentials, rights tests | Blocked externally |
 | R2 complete exit | Full benchmark/attribution/property suite | Not approved |
 | R3 complete exit | ≥99% bounded runs, provider and abstention evaluation | Not approved |
