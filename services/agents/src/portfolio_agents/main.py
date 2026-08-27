@@ -50,12 +50,25 @@ class AgentRunRequest(BaseModel):
     thread_id: str | None = None
 
 
+class AgentPrediction(BaseModel):
+    signal: Literal["BULLISH", "BEARISH", "NEUTRAL", "ABSTAIN"]
+    confidence: Literal["low", "medium", "high"]
+    horizon: str
+    summary: str
+    factors: list[str] = Field(default_factory=list)
+    engine: str
+    upstream_repository: str
+    upstream_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    not_trade_instruction: Literal[True]
+
+
 class AgentProposal(BaseModel):
     type: str
     status: str
     title: str
     candidate_actions: list[dict[str, str]] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    prediction: AgentPrediction | None = None
     can_execute: Literal[False]
 
 
@@ -70,6 +83,7 @@ class AgentRunResponse(BaseModel):
     citations: list[dict]
     limitations: list[str]
     proposal: AgentProposal
+    prediction: AgentPrediction
     perspectives: dict[str, str]
     telemetry: dict
     as_of: datetime
@@ -209,8 +223,8 @@ async def create_agent_run(
         "question_hash": question_hash,
         "as_of": as_of.isoformat(),
         "known_at": known_at.isoformat(),
-        "graph_version": "spi-tradingagents-adapter/2.0.0",
-        "prompt_bundle_version": "spi-evidence-synthesis/2.0.0",
+        "graph_version": "spi-tradingagents-adapter/3.0.0",
+        "prompt_bundle_version": "spi-evidence-synthesis/3.0.0",
         "model_route": settings.openai_model or "deterministic-safe",
         "policy_version": "spi-proposal-policy/2.0.0",
         "allowed_tools": ["core.analytics.read", "core.evidence.read"],
@@ -347,6 +361,7 @@ async def create_agent_run(
             detail={"code": "AGENT_RUN_FAILED", "message": "The bounded agent run failed."},
         ) from error
     proposal = AgentProposal.model_validate(state.get("proposal") or {})
+    prediction = AgentPrediction.model_validate(state.get("prediction") or {})
     answer = state["answer"]
     completion = {
         "state": "completed",
@@ -382,6 +397,7 @@ async def create_agent_run(
         citations=state.get("citations") or [],
         limitations=state.get("limitations") or [],
         proposal=proposal,
+        prediction=prediction,
         perspectives=state.get("perspectives") or {},
         telemetry=state.get("telemetry") or {},
         as_of=as_of,

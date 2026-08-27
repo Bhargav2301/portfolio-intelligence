@@ -14,6 +14,7 @@ import {
   ReconciliationCase,
   UploadCompleted,
   UploadInitiated,
+  UploadResult,
   requestJson,
   requestJsonWithMetadata,
   uploadObject,
@@ -56,6 +57,8 @@ export default function PortfolioWorkspace() {
   const [error, setError] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [uploadName, setUploadName] = useState("");
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [evidenceUpload, setEvidenceUpload] = useState<UploadResult | null>(null);
   const [records, setRecords] = useState<ExtractedRecord[]>([]);
   const [cases, setCases] = useState<ReconciliationCase[]>([]);
   const [batch, setBatch] = useState<ImportBatch | null>(null);
@@ -202,6 +205,43 @@ export default function PortfolioWorkspace() {
       setError(caught instanceof Error ? caught.message : "File could not be accepted.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function uploadResearchFile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const formElement = event.currentTarget;
+    const body = new FormData(formElement);
+    const file = body.get("file");
+    if (!(file instanceof File)) {
+      setError("Choose a PDF, XLS, XLSX, or CSV research file.");
+      return;
+    }
+    body.set("portfolio_id", selected.id);
+    body.set("source_role", "research");
+    setEvidenceUploading(true);
+    setEvidenceUpload(null);
+    setError("");
+    setNotice("Checking and extracting the research source…");
+    try {
+      const accepted = await requestJson<UploadResult>("/api/core/v1/uploads/direct", {
+        method: "POST",
+        body,
+      });
+      setEvidenceUpload(accepted);
+      const claimCount = accepted.parser_summary.evidence?.claim_count ?? 0;
+      setNotice(
+        claimCount > 0
+          ? `${claimCount} reviewed evidence claims are ready for the TradingAgents panel.`
+          : "The file passed quarantine, but its layout needs manual evidence mapping.",
+      );
+      formElement.reset();
+    } catch (caught) {
+      setNotice("");
+      setError(caught instanceof Error ? caught.message : "Research evidence could not be accepted.");
+    } finally {
+      setEvidenceUploading(false);
     }
   }
 
@@ -608,8 +648,9 @@ export default function PortfolioWorkspace() {
                     <span className="privacy-tag">Quarantined</span>
                   </div>
                   <p className="panel-copy">
-                    R1 accepts only the certified <code>spi-ledger-csv/v1</code> format. Files remain
-                    quarantined until every row is reviewed and an owner publishes with recent MFA.
+                    Ledger publication still requires the certified <code>spi-ledger-csv/v1</code>
+                    format and owner review. Demo research files are indexed only as evidence and
+                    can never mutate holdings.
                   </p>
                   <form className="upload-form" onSubmit={uploadFile}>
                     <label className="file-drop">
@@ -622,6 +663,35 @@ export default function PortfolioWorkspace() {
                       {uploading ? "Checking quarantine…" : "Securely upload and reconcile"}
                     </button>
                   </form>
+
+                  <form className="upload-form" onSubmit={uploadResearchFile}>
+                    <label className="file-drop">
+                      <span className="upload-arrow" aria-hidden="true">R</span>
+                      <strong>Add research evidence for the demo</strong>
+                      <small>PDF, XLS, XLSX, or CSV · reviewed claims · cutoff-safe citations</small>
+                      <input
+                        name="file"
+                        type="file"
+                        accept=".pdf,.xls,.xlsx,.csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                        required
+                      />
+                    </label>
+                    <button className="secondary-button" type="submit" disabled={evidenceUploading}>
+                      {evidenceUploading ? "Extracting evidence…" : "Index for TradingAgents"}
+                    </button>
+                  </form>
+
+                  {evidenceUpload && (
+                    <div className="publication-receipt" role="status">
+                      <strong>{evidenceUpload.original_name}</strong>
+                      <span>{evidenceUpload.parser_summary.evidence?.claim_count ?? 0} claims indexed</span>
+                      <span>
+                        {(evidenceUpload.parser_summary.evidence?.instruments ?? []).slice(0, 4).join(", ") ||
+                          "Manual mapping required"}
+                      </span>
+                      <span>Evidence only · ledger unchanged</span>
+                    </div>
+                  )}
 
                   {batch && (
                     <div className="reconciliation-workbench" aria-live="polite">
@@ -748,14 +818,18 @@ export default function PortfolioWorkspace() {
                   <form className="chat-form" onSubmit={askAgent}>
                     <label>
                       <span>Security focus (optional)</span>
-                      <select value={instrument} onChange={(event) => setInstrument(event.target.value)}>
-                        <option value="">Portfolio-wide review</option>
+                      <input
+                        value={instrument}
+                        onChange={(event) => setInstrument(event.target.value)}
+                        list="portfolio-instruments"
+                        placeholder="e.g. YATHARTH.NS"
+                        maxLength={32}
+                      />
+                      <datalist id="portfolio-instruments">
                         {(ledger?.holdings ?? []).map((holding) => (
-                          <option key={holding.instrument_reference} value={holding.instrument_reference}>
-                            {holding.instrument_reference}
-                          </option>
+                          <option key={holding.instrument_reference} value={holding.instrument_reference} />
                         ))}
-                      </select>
+                      </datalist>
                     </label>
                     <label className="sr-only" htmlFor="question">Question</label>
                     <textarea
@@ -778,6 +852,12 @@ export default function PortfolioWorkspace() {
                         <span>Run {agent.run_id.slice(0, 8)}</span>
                       </div>
                       <p>{agent.answer}</p>
+                      <section className="proposal-card" aria-label="TradingAgents research signal">
+                        <span>{agent.prediction.confidence} confidence</span>
+                        <strong>{agent.prediction.signal}</strong>
+                        <small>{agent.prediction.summary}</small>
+                        <small>Research signal only · not a trade instruction</small>
+                      </section>
                       {agent.proposal.title && (
                         <section className="proposal-card" aria-label="Review proposal">
                           <span>{agent.proposal.status?.replaceAll("_", " ")}</span>
