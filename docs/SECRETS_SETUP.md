@@ -47,10 +47,38 @@ The bootstrap script generates:
 | OBJECT_STORAGE_SECRET_KEY | Local MinIO password |
 | SESSION_SECRET | Signs local browser/session state |
 | FIELD_ENCRYPTION_KEY | Encrypts sensitive fields; base64-encoded 32-byte key |
+| AGENT_CORE_SHARED_SECRET | Authenticates Agent service run-provenance writes to Core |
 
 These values are suitable for one local developer. Production values must come from a managed secret store and use separate credentials per environment.
 
 Do not reuse any generated value as a personal password.
+
+### Core-to-Agent internal authentication
+
+Variable:
+
+- AGENT_CORE_SHARED_SECRET
+
+The bootstrap script creates this value for local development. It must be identical in the Core API
+and Agent API process environments. It is server-only and must never use a `NEXT_PUBLIC_` name.
+
+For AWS staging or production:
+
+1. Generate at least 48 random bytes with an approved password generator or secret-management
+   workflow.
+2. Open the Terraform-created Secrets Manager entry ending in `/agent-internal`.
+3. Store one JSON value with this exact shape, substituting the generated value:
+
+       {"shared_secret":"replace-with-generated-value"}
+
+4. Do not place the value in Terraform variables, task-definition source, CI output, or logs.
+5. Deploy Core and Agents together; Terraform injects the same `shared_secret` JSON field into both
+   services.
+6. Verify an Agent start/complete request succeeds and a missing or altered secret receives 401.
+7. Rotate by creating a new secret version and rolling both services in the same maintenance window.
+
+Staging and production services fail closed when this secret is absent. If final run persistence to
+Core fails, the Agent service withholds the answer instead of returning unrecorded advice.
 
 ## 4. Required before a public production deployment
 
@@ -256,5 +284,7 @@ Deleting a leaked string from the latest commit does not make the old key safe.
 - Object storage is private.
 - Production malware scanning is required.
 - OIDC is configured before public access.
+- AGENT_CORE_SHARED_SECRET is server-only, identical in Core and Agents, and stored in
+  `agent-internal`.
 - Upstox scopes are read-only.
 - Agent and provider logs do not contain raw financial documents.

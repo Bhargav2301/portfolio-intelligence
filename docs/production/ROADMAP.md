@@ -23,4 +23,14 @@ the Terraform gates prohibit traffic until staging evidence exists.
 - AWS Terraform and signed-digest pipeline: implemented and provider-schema validated.
 - Staging account provisioning, Cognito end-to-end tests, backup restore drill, telemetry canary,
   and formal R1 sign-off: pending external AWS accounts, DNS/certificates, secrets, and approvals.
-- R2–R5 product capabilities: roadmap only unless separately marked in `R1_EXIT_REPORT.md`.
+- R2 implementation candidate: sealed market-data sets, immutable valuation/position snapshots,
+  Decimal TWR/XIRR/volatility/downside/drawdown, data-quality states, and reserve-safe persisted
+  scenarios are implemented. Benchmark/attribution, licensed data workers, advanced corporate
+  actions, PostgreSQL property testing, and the formal R2 gate remain pending.
+- R3 implementation candidate: immutable evidence/claim records, cutoff validation, numeric
+  citations, Core run/stage/proposal provenance, durable LangGraph checkpoint configuration,
+  abstention, and terminal-persistence fail-closed behavior are implemented. Licensed connectors,
+  failover/cancellation/SSE, bounded-completion evaluation, canary, and kill-switch evidence remain
+  pending.
+- R4–R5 product capabilities remain roadmap work. See `R2_R3_IMPLEMENTATION_REPORT.md` for the exact
+  checkpoint evidence and open gates.

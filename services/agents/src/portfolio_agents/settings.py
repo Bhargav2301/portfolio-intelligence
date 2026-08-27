@@ -16,6 +16,7 @@ class AgentSettings(BaseSettings):
 
     app_env: str = "development"
     core_api_url: str = "http://localhost:8000"
+    agent_core_shared_secret: str | None = None
     dev_workspace_id: str = "00000000-0000-0000-0000-000000000001"
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -63,6 +64,8 @@ class AgentSettings(BaseSettings):
                 missing.append("IDENTITY_PROPAGATION_ENABLED=true")
             if not self.agent_evaluation_verified:
                 missing.append("AGENT_EVALUATION_VERIFIED=true")
+            if not self.agent_core_shared_secret:
+                missing.append("AGENT_CORE_SHARED_SECRET")
             if missing:
                 raise ValueError(
                     "Production agent configuration is incomplete: " + ", ".join(missing)

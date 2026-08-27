@@ -9,9 +9,10 @@ record. TradingAgents commit `a33fd4c0f134485a43553a2c23a63cb14adbd88f` has been
 isolated research pattern inside the agent service. Its analyst, bull/bear, and risk-panel structure
 is retained; its trader semantics are replaced by typed, non-executable proposals.
 
-This implementation is a tested production-oriented vertical slice, not approval for public use or
-real-money advice. OIDC/MFA, durable checkpoints, certified file reconciliation, licensed
-point-in-time research, and the formal security/compliance gates remain launch blockers.
+This implementation is a tested production-oriented R2/R3 candidate, not approval for public use
+or real-money advice. Licensed point-in-time providers, staging qualification, benchmark/attribution,
+finance property tests, agent reliability evaluation, accessibility/security review, and formal
+security/compliance sign-off remain launch blockers.
 
 ## Non-negotiable boundary
 
@@ -38,7 +39,7 @@ publishes them.
 
 | Source | Role in the unified system | Integration decision |
 |---|---|---|
-| `portfolio-intelligence` at `1a431c7` | Next.js UI, Core API, storage, data model, deployment shell | Primary repository |
+| `portfolio-intelligence` at `e1c24db` | Next.js UI, Core API, storage, data model, deployment shell | Primary repository and R2/R3 branch base |
 | `TradingAgents` at `a33fd4c` | Reference architecture for multi-role security research | Adapted, not imported as ledger/execution code |
 | `services/api` | Tenant-scoped portfolio truth and deterministic calculations | Sole numeric authority |
 | `services/agents` | Explanation, research perspectives, risk review, proposal composition | Read-only Core API consumer |
@@ -109,9 +110,24 @@ partial, trusted, alert, and proposal-only states remain explicit.
 **Action.** Added API and graph tests and ran Python compilation, unit/contract suites, repository
 policy checks, TypeScript validation, and the production web build.
 
-**Observation.** The implemented slice passes its automated checks. Historical returns, licensed
-research, production identity, durable checkpoints, and full reconciliation are deliberately not
-represented as complete.
+**Observation.** The R0/R1 slice passes its automated checks. External AWS staging and formal R1
+sign-off remain separate from code completion.
+
+### Phase 6 — Point-in-time valuation, evidence, and durable runs
+
+**Thought.** A latest-ledger roll-up cannot reproduce historical advice. R2/R3 require separate
+economic and information cutoffs, immutable input/output versions, deterministic methods, and a
+durable record of every evidence-backed proposal.
+
+**Action.** Added sealed market-data sets, supported corporate actions, immutable valuation and
+metric snapshots, TWR/XIRR/risk/scenario calculations, typed evidence claims, numeric-citation
+coverage, durable Core run/stage/proposal records, and PostgreSQL LangGraph checkpoint scope. Agent
+completion is accepted only with `can_execute: false`; unsupported numeric output is withheld.
+
+**Observation.** The local Core and agent suites pass deterministic golden cases, future-known price
+exclusion, reserve/equal-weight rejection, citation mismatch suppression, terminal run persistence,
+and cross-tenant denial. PostgreSQL migration/RLS, licensed-provider, failover, bounded-completion,
+and cloud gates still require their specified environments and are not claimed as passed.
 
 ## Implemented API surface
 
@@ -121,9 +137,19 @@ represented as complete.
 | `GET /v1/portfolios/{id}/ledger/events` | Read append-only event history | Tenant scope; no update/delete route |
 | `GET /v1/portfolios/{id}/holdings` | Read deterministic holdings/cash snapshot | Decimal roll-forward; ledger version and limitations returned |
 | `GET /v1/portfolios/{id}/analytics/latest` | Read current deterministic metrics | AI is not involved in calculation |
+| `POST /v1/portfolios/{id}/market-data/datasets` | Register a sealed, rights-declared point-in-time data set | Owner/recent MFA, idempotency, cutoff metadata |
+| `POST /v1/portfolios/{id}/analytics/recompute` | Persist a versioned valuation and risk snapshot | Ledger/data/method versions, Decimal math, cutoff filtering |
+| `GET /v1/analytics/{snapshot_id}/metrics` | Read one immutable snapshot and its positions/metrics | Tenant scope and reproducible lineage |
+| `POST /v1/portfolios/{id}/scenarios` | Persist a hypothetical market-stress scenario | Reserve/rule enforcement; tax excluded; `can_execute: false` |
+| `GET /v1/scenarios/{scenario_id}` | Read a scenario result | Tenant scope; no mutation or order semantics |
+| `POST /v1/portfolios/{id}/evidence` | Register approved evidence and typed claims | Owner/recent MFA, rights/hash/cutoff validation, append-only |
+| `GET /v1/evidence/{evidence_id}` | Read evidence metadata and claims | Tenant scope; structured locators only |
+| `POST /v1/portfolios/{id}/agent-runs` | Start durable run provenance | Internal-service auth, scoped thread/cutoff, `can_execute: false` |
+| `POST /v1/agent-runs/{run_id}/complete` | Persist terminal stages, citations, hash, and proposal | 100% numeric coverage for completed output; evidence verification |
+| `GET /v1/agent-runs/{run_id}` | Read public run provenance | Tenant scope; no hidden reasoning stored |
 | `GET /v1/portfolios/{id}/monitors/latest` | Check reserve and concentration rules | Deterministic thresholds with evidence IDs |
-| `GET /v1/portfolios/{id}/agent-context` | Supply minimum typed agent context | Tenant-scoped Core API boundary |
-| `POST /v1/agent-runs` | Run portfolio/research review | Read-only, bounded rounds, evidence, proposal-only output |
+| `GET /v1/portfolios/{id}/agent-context` | Supply cutoff-safe typed agent context | Tenant-scoped Core boundary with eligible evidence only |
+| `POST /v1/agent-runs` on Agent API | Run portfolio/research review | Read-only, bounded rounds, citations, durable provenance, proposal-only output |
 
 ## Target production topology
 
@@ -155,17 +181,20 @@ represented as complete.
 
 ### R2 — Historical analytics and scenarios
 
-- Add instrument master, corporate actions, licensed prices, benchmark series, valuation snapshots,
-  TWR/MWR, contribution, volatility, drawdown, overlap, and methodology versions.
-- Add typed scenario API with costs, tax-excluded disclosure, and hard-constraint validation.
+- Implemented candidate: sealed price/corporate-action data sets, valuation snapshots, positions,
+  TWR/XIRR, volatility, downside deviation, drawdown, coverage/quality states, methodology versions,
+  and persisted tax-excluded scenarios with hard-constraint validation.
+- Remaining scope: instrument master, licensed ingestion workers, benchmark/active return,
+  contribution/attribution, overlap, advanced corporate actions, and qualified cost models.
 - Gate: deterministic finance golden/property suite and point-in-time reproducibility pass.
 
 ### R3 — Evidence-grade research and durable agents
 
-- Add evidence records with provider, query, publication/retrieval time, cutoff, hash, and rights.
-- Connect licensed point-in-time market/fundamental/news tools through immutable worker config.
-- Move checkpoints and run/artifact records to PostgreSQL; add interrupts, cancellation, SSE, and
-  user-visible tool/stage telemetry.
+- Implemented candidate: immutable evidence records/typed claims with source/publication/known-at/
+  cutoff/hash/rights metadata, numeric citations, cutoff-safe context, durable Core run/stage/
+  proposal records, PostgreSQL checkpoints, and user-visible public stages/citations.
+- Remaining scope: licensed point-in-time provider workers, interrupts, cancellation, SSE, expanded
+  user-visible tool telemetry, reliability/canary evaluation, and exercised kill switch.
 - Gate: 100% numeric-claim citation, zero historical cutoff violations, bounded completion at least
   99%.
 
@@ -184,15 +213,16 @@ represented as complete.
 
 ## Current known limitations
 
-- Manual ledger publication is available; file-derived publication still needs the reconciliation
-  workbench and certified templates.
-- Latest transaction/price-mark values support the current snapshot; historical performance and
-  licensed live prices are not implemented.
+- Certified `spi-ledger-csv/v1` file reconciliation and publication are implemented; additional
+  brokerage templates and asynchronous-worker cutover remain pending.
+- Versioned historical prices can be registered through the API and deterministic snapshots are
+  implemented; a licensed provider worker and benchmark/attribution coverage are not.
 - Monitor coverage currently includes data presence, protected cash, and max position weight. Drift
   needs versioned target allocations.
-- The research panel has provider slots but deliberately abstains when approved point-in-time
-  evidence is absent.
-- Development uses in-memory LangGraph checkpoints. Production mode remains fail-closed until
-  durable checkpoints and verified identity propagation are enabled.
+- The research panel consumes approved point-in-time evidence and deliberately abstains when it is
+  absent; licensed market/fundamental/news workers are not connected.
+- Local development may use in-memory LangGraph checkpoints. Staging/production require the
+  PostgreSQL checkpoint DSN and internal Core shared secret and fail closed without them; failover
+  qualification is still pending.
 - The current local workspace header is development-only and must never be exposed as a production
   tenancy mechanism.

@@ -33,11 +33,20 @@ export type UploadResult = {
 
 export type AgentResult = {
   run_id: string;
+  thread_id: string;
   state: string;
   answer: string;
   stages: string[];
   policy: { decision?: string; reasons?: string[] };
   evidence: Array<Record<string, unknown>>;
+  citations: Array<{
+    claim_key: string;
+    evidence_id: string;
+    value: string;
+    unit: string;
+    as_of: string;
+    locator: string;
+  }>;
   limitations: string[];
   proposal: {
     type?: string;
@@ -128,10 +137,15 @@ export type PublicationAccepted = {
 };
 
 export type AnalyticsSnapshot = {
+  snapshot_id?: string | null;
   portfolio_id: string;
   quality_state: "trusted" | "needs_review" | "partial" | "stale";
   as_of: string;
+  known_at?: string | null;
   ledger_version: number;
+  market_data_version?: string | null;
+  methodology_version?: string | null;
+  input_hash?: string | null;
   metrics: Record<string, string | null>;
   limitations: string[];
 };
@@ -271,4 +285,3 @@ export async function uploadObject(
   });
   if (!response.ok) throw new Error("The quarantined object upload failed.");
 }
-

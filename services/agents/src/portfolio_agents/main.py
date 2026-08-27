@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Literal
@@ -45,6 +47,7 @@ class AgentRunRequest(BaseModel):
     question: str = Field(min_length=2, max_length=4_000)
     instrument: str | None = Field(default=None, min_length=1, max_length=32)
     as_of: datetime | None = None
+    thread_id: str | None = None
 
 
 class AgentProposal(BaseModel):
@@ -58,11 +61,13 @@ class AgentProposal(BaseModel):
 
 class AgentRunResponse(BaseModel):
     run_id: str
+    thread_id: str
     state: str
     answer: str
     stages: list[str]
     policy: dict
     evidence: list[dict]
+    citations: list[dict]
     limitations: list[str]
     proposal: AgentProposal
     perspectives: dict[str, str]
@@ -89,13 +94,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Portfolio Intelligence Agent API",
-    version="0.2.0",
+    version="0.3.0",
     description=(
         "Bounded LangGraph workflow for evidence-linked portfolio research. "
         "Every proposal is structurally non-executable."
     ),
     lifespan=lifespan,
 )
+
+
+def _core_headers(
+    workspace_id: str, authorization: str | None, agent_secret: str | None
+) -> dict[str, str]:
+    headers = {"X-Workspace-Id": workspace_id}
+    if authorization:
+        headers["Authorization"] = authorization
+    if agent_secret:
+        headers["X-Agent-Service-Token"] = agent_secret
+    return headers
+
+
+async def _finish_core_run(
+    *,
+    run_id: str,
+    headers: dict[str, str],
+    payload: dict,
+) -> None:
+    settings = get_agent_settings()
+    async with httpx.AsyncClient(
+        base_url=settings.core_api_url,
+        timeout=20,
+        headers=headers,
+    ) as client:
+        response = await client.post(f"/v1/agent-runs/{run_id}/complete", json=payload)
+        response.raise_for_status()
 
 
 @app.get("/health/live")
@@ -121,6 +153,7 @@ async def create_agent_run(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
+    x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
 ) -> AgentRunResponse:
     settings = get_agent_settings()
     if settings.requires_oidc and (
@@ -131,28 +164,90 @@ async def create_agent_run(
             detail={"code": "AUTHENTICATION_REQUIRED", "message": "Sign in is required."},
         )
     run_id = str(uuid4())
-    as_of = payload.as_of or datetime.now(UTC)
+    request_time = datetime.now(UTC)
+    as_of = payload.as_of or request_time
+    # Agent research intentionally uses one historical cutoff for economic and information time.
+    # This prevents a current retrieval timestamp from implying access to evidence after as_of.
+    known_at = as_of
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "TIMEZONE_REQUIRED", "message": "as_of must include a UTC offset."},
+        )
+    if as_of > request_time:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "FUTURE_CUTOFF", "message": "as_of cannot be in the future."},
+        )
     try:
         workspace_id = str(UUID(x_workspace_id or settings.dev_workspace_id))
         portfolio_id = str(UUID(payload.portfolio_id))
+        thread_id = str(UUID(payload.thread_id)) if payload.thread_id else str(uuid4())
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "INVALID_SCOPE", "message": "Invalid workspace or portfolio ID."},
         ) from error
-    core_headers = {"X-Workspace-Id": workspace_id}
-    if authorization:
-        core_headers["Authorization"] = authorization
+    checkpoint_thread_id = hashlib.sha256(
+        f"{workspace_id}:{portfolio_id}:{thread_id}".encode()
+    ).hexdigest()
+    core_headers = _core_headers(workspace_id, authorization, settings.agent_core_shared_secret)
+    request_id = (x_request_id if x_request_id and len(x_request_id) >= 8 else str(uuid4()))[:96]
+    question_hash = (
+        hmac.new(
+            settings.agent_core_shared_secret.encode("utf-8"),
+            payload.question.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        if settings.agent_core_shared_secret
+        else hashlib.sha256(payload.question.encode("utf-8")).hexdigest()
+    )
+    start_payload = {
+        "run_id": run_id,
+        "thread_id": thread_id,
+        "request_id": request_id,
+        "question_hash": question_hash,
+        "as_of": as_of.isoformat(),
+        "known_at": known_at.isoformat(),
+        "graph_version": "spi-tradingagents-adapter/2.0.0",
+        "prompt_bundle_version": "spi-evidence-synthesis/2.0.0",
+        "model_route": settings.openai_model or "deterministic-safe",
+        "policy_version": "spi-proposal-policy/2.0.0",
+        "allowed_tools": ["core.analytics.read", "core.evidence.read"],
+        "checkpoint_thread_id": checkpoint_thread_id,
+    }
     try:
         async with httpx.AsyncClient(
             base_url=settings.core_api_url,
             timeout=20,
             headers=core_headers,
         ) as client:
-            response = await client.get(f"/v1/portfolios/{portfolio_id}/agent-context")
+            started = await client.post(
+                f"/v1/portfolios/{portfolio_id}/agent-runs", json=start_payload
+            )
+            started.raise_for_status()
+            response = await client.get(
+                f"/v1/portfolios/{portfolio_id}/agent-context",
+                params={"as_of": as_of.isoformat()},
+            )
             response.raise_for_status()
             context = response.json()
     except httpx.HTTPStatusError as error:
+        try:
+            await _finish_core_run(
+                run_id=run_id,
+                headers=core_headers,
+                payload={
+                    "state": "failed",
+                    "stages": [],
+                    "citations": [],
+                    "policy": {"decision": "suppressed", "reasons": ["CORE_CONTEXT_FAILED"]},
+                    "numeric_citation_coverage": "1",
+                    "error_code": "CORE_CONTEXT_FAILED",
+                },
+            )
+        except httpx.HTTPError:
+            pass
         if error.response.status_code in {401, 403}:
             raise HTTPException(
                 status_code=error.response.status_code,
@@ -200,26 +295,91 @@ async def create_agent_run(
                     "context": context,
                     "stages": [],
                     "evidence": [],
+                    "citations": [],
                     "limitations": [],
                 },
                 config={
-                    "configurable": {"thread_id": run_id},
+                    "configurable": {
+                        "thread_id": checkpoint_thread_id,
+                        "checkpoint_ns": f"{workspace_id}:{portfolio_id}",
+                    },
                     "recursion_limit": settings.agent_max_steps + 2,
                 },
             )
     except TimeoutError as error:
+        try:
+            await _finish_core_run(
+                run_id=run_id,
+                headers=core_headers,
+                payload={
+                    "state": "timed_out",
+                    "stages": [],
+                    "citations": [],
+                    "policy": {"decision": "suppressed", "reasons": ["AGENT_TIMEOUT"]},
+                    "numeric_citation_coverage": "1",
+                    "error_code": "AGENT_TIMEOUT",
+                },
+            )
+        except httpx.HTTPError:
+            pass
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail={"code": "AGENT_TIMEOUT", "message": "The bounded agent run timed out."},
         ) from error
+    except Exception as error:
+        try:
+            await _finish_core_run(
+                run_id=run_id,
+                headers=core_headers,
+                payload={
+                    "state": "failed",
+                    "stages": [],
+                    "citations": [],
+                    "policy": {"decision": "suppressed", "reasons": ["AGENT_RUN_FAILED"]},
+                    "numeric_citation_coverage": "1",
+                    "error_code": "AGENT_RUN_FAILED",
+                },
+            )
+        except httpx.HTTPError:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "AGENT_RUN_FAILED", "message": "The bounded agent run failed."},
+        ) from error
     proposal = AgentProposal.model_validate(state.get("proposal") or {})
+    answer = state["answer"]
+    completion = {
+        "state": "completed",
+        "intent": state.get("intent"),
+        "stages": state.get("stages") or [],
+        "citations": state.get("citations") or [],
+        "policy": state.get("policy") or {},
+        "proposal": proposal.model_dump(mode="json"),
+        "numeric_citation_coverage": str(
+            (state.get("telemetry") or {}).get("numeric_citation_coverage", "0")
+        ),
+        "answer": answer,
+        "answer_hash": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
+    }
+    try:
+        await _finish_core_run(run_id=run_id, headers=core_headers, payload=completion)
+    except httpx.HTTPError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "AGENT_DURABILITY_FAILED",
+                "message": "The answer was withheld because durable run recording failed.",
+            },
+        ) from error
     return AgentRunResponse(
         run_id=run_id,
+        thread_id=thread_id,
         state="completed",
-        answer=state["answer"],
+        answer=answer,
         stages=state.get("stages") or [],
         policy=state.get("policy") or {},
         evidence=state.get("evidence") or [],
+        citations=state.get("citations") or [],
         limitations=state.get("limitations") or [],
         proposal=proposal,
         perspectives=state.get("perspectives") or {},

@@ -133,6 +133,7 @@ data "aws_iam_policy_document" "agents" {
       aws_secretsmanager_secret.application["openai"].arn,
       aws_secretsmanager_secret.application["market-data"].arn,
       aws_secretsmanager_secret.application["news-data"].arn,
+      aws_secretsmanager_secret.application["agent-internal"].arn,
     ]
   }
 

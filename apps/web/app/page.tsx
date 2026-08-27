@@ -38,6 +38,16 @@ function formatInr(value: string | null | undefined) {
 }
 
 
+function formatRatio(value: string | null | undefined) {
+  if (value === null || value === undefined) return "Not enough history";
+  return new Intl.NumberFormat("en-IN", {
+    style: "percent",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}
+
+
 export default function PortfolioWorkspace() {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -63,6 +73,7 @@ export default function PortfolioWorkspace() {
     "What should I review before making any investment decision?",
   );
   const [agentRunning, setAgentRunning] = useState(false);
+  const [chatThreadId, setChatThreadId] = useState("");
 
   const selected = useMemo(
     () => portfolios.find((portfolio) => portfolio.id === selectedId) ?? portfolios[0],
@@ -107,6 +118,11 @@ export default function PortfolioWorkspace() {
   useEffect(() => {
     void loadIntelligence(selected?.id ?? "");
   }, [loadIntelligence, selected?.id]);
+
+  useEffect(() => {
+    setChatThreadId("");
+    setAgent(null);
+  }, [selected?.id]);
 
   async function createPortfolio(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -287,9 +303,11 @@ export default function PortfolioWorkspace() {
           portfolio_id: selected.id,
           question: chatQuestion,
           instrument: instrument || undefined,
+          thread_id: chatThreadId || undefined,
         }),
       });
       setAgent(result);
+      setChatThreadId(result.thread_id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The agent run failed.");
     } finally {
@@ -471,6 +489,33 @@ export default function PortfolioWorkspace() {
                     <span>Protected reserve</span>
                     <strong>{formatInr(selected.rules.protected_cash.amount)}</strong>
                     <small>Unavailable to every scenario</small>
+                  </article>
+                </div>
+
+                <div className="metric-grid risk-metrics" aria-label="Versioned return and risk metrics">
+                  <article className="metric-card">
+                    <span>Time-weighted return</span>
+                    <strong>{formatRatio(analytics?.metrics.time_weighted_return)}</strong>
+                    <small>Chain-linked; external flows removed</small>
+                  </article>
+                  <article className="metric-card">
+                    <span>Annualized volatility</span>
+                    <strong>{formatRatio(analytics?.metrics.volatility)}</strong>
+                    <small>Requires multiple trusted snapshots</small>
+                  </article>
+                  <article className="metric-card">
+                    <span>Maximum drawdown</span>
+                    <strong>{formatRatio(analytics?.metrics.max_drawdown)}</strong>
+                    <small>Historical observation, not a forecast</small>
+                  </article>
+                  <article className="metric-card">
+                    <span>Price coverage</span>
+                    <strong>{formatRatio(analytics?.metrics.price_coverage)}</strong>
+                    <small>
+                      {analytics?.market_data_version
+                        ? `Market data ${analytics.market_data_version}`
+                        : "Versioned prices not loaded"}
+                    </small>
                   </article>
                 </div>
 
@@ -730,6 +775,7 @@ export default function PortfolioWorkspace() {
                         <span>{agent.policy.decision?.replaceAll("_", " ")}</span>
                         <span>{agent.stages.length} bounded stages</span>
                         <span>{agent.evidence.length} evidence items</span>
+                        <span>Run {agent.run_id.slice(0, 8)}</span>
                       </div>
                       <p>{agent.answer}</p>
                       {agent.proposal.title && (
@@ -747,6 +793,19 @@ export default function PortfolioWorkspace() {
                               <a href={"/api/core" + String(item.uri ?? "")} target="_blank">
                                 {String(item.title ?? item.id ?? "Evidence")}
                               </a>
+                            </li>
+                          ))}</ul>
+                        </details>
+                      )}
+                      {agent.citations.length > 0 && (
+                        <details>
+                          <summary>Numeric citations ({agent.citations.length})</summary>
+                          <ul>{agent.citations.map((citation) => (
+                            <li key={`${citation.evidence_id}-${citation.claim_key}`}>
+                              <a href={`/api/core${citation.locator}`} target="_blank">
+                                {citation.claim_key}: {citation.value} {citation.unit}
+                              </a>
+                              <small> · as of {new Date(citation.as_of).toLocaleString("en-IN")}</small>
                             </li>
                           ))}</ul>
                         </details>
@@ -788,4 +847,3 @@ export default function PortfolioWorkspace() {
     </main>
   );
 }
-

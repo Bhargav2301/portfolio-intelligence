@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from portfolio_api.database import get_tenant_session
-from portfolio_api.models import Portfolio, Transaction
+from portfolio_api.models import AnalyticsSnapshotRecord, Portfolio, Transaction
+from portfolio_api.routers.intelligence import snapshot_detail
 from portfolio_api.schemas import AnalyticsSnapshot
 from portfolio_api.services.analytics import GoalInputError, required_cagr
 from portfolio_api.services.ledger import calculate_ledger
@@ -52,6 +53,17 @@ async def latest_analytics(
     )
     if portfolio is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Portfolio not found.")
+    stored = await session.scalar(
+        select(AnalyticsSnapshotRecord)
+        .where(
+            AnalyticsSnapshotRecord.portfolio_id == portfolio.id,
+            AnalyticsSnapshotRecord.tenant_id == context.tenant_id,
+        )
+        .order_by(AnalyticsSnapshotRecord.as_of.desc(), AnalyticsSnapshotRecord.created_at.desc())
+        .limit(1)
+    )
+    if stored is not None:
+        return await snapshot_detail(session, portfolio, stored)
     events = list(
         await session.scalars(
             select(Transaction)

@@ -13,6 +13,8 @@ USER_A = "10000000-0000-0000-0000-000000000002"
 USER_B = "20000000-0000-0000-0000-000000000002"
 PORTFOLIO_A = "10000000-0000-0000-0000-000000000003"
 PORTFOLIO_B = "20000000-0000-0000-0000-000000000003"
+DATASET_A = "10000000-0000-0000-0000-000000000010"
+DATASET_B = "20000000-0000-0000-0000-000000000010"
 RUNTIME_PASSWORD = secrets.token_urlsafe(24)
 
 
@@ -80,6 +82,29 @@ class PostgreSQLRlsTests(unittest.IsolatedAsyncioTestCase):
                 USER_B,
                 PORTFOLIO_A,
                 PORTFOLIO_B,
+            )
+            await admin.execute(
+                """
+                INSERT INTO market_data_sets (
+                    id, tenant_id, portfolio_id, provider, provider_version, rights_basis,
+                    cutoff_at, known_at, content_hash, status, created_by
+                ) VALUES
+                    ($1, $3, $5, 'ci-feed', 'tenant-a', 'licensed',
+                     '2026-08-26T10:00:00Z', '2026-08-26T10:01:00Z', $7, 'sealed', $9),
+                    ($2, $4, $6, 'ci-feed', 'tenant-b', 'licensed',
+                     '2026-08-26T10:00:00Z', '2026-08-26T10:01:00Z', $8, 'sealed', $10)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                DATASET_A,
+                DATASET_B,
+                TENANT_A,
+                TENANT_B,
+                PORTFOLIO_A,
+                PORTFOLIO_B,
+                "a" * 64,
+                "b" * 64,
+                USER_A,
+                USER_B,
             )
         finally:
             await admin.close()
@@ -177,6 +202,129 @@ class PostgreSQLRlsTests(unittest.IsolatedAsyncioTestCase):
                         TENANT_A,
                         PORTFOLIO_B,
                         USER_A,
+                    )
+        finally:
+            await connection.close()
+
+    async def test_r2_tables_are_forced_rls_and_cross_tenant_fk_safe(self) -> None:
+        connection = await asyncpg.connect(runtime_dsn(self.admin_dsn))
+        try:
+            async with connection.transaction():
+                await connection.execute(
+                    "SELECT set_config('app.current_tenant', $1, true)", TENANT_A
+                )
+                visible = await connection.fetch("SELECT id FROM market_data_sets ORDER BY id")
+                self.assertEqual([str(row["id"]) for row in visible], [DATASET_A])
+                hidden = await connection.fetchval(
+                    "SELECT count(*) FROM market_data_sets WHERE tenant_id = $1", TENANT_B
+                )
+                self.assertEqual(hidden, 0)
+                with self.assertRaises(asyncpg.InsufficientPrivilegeError):
+                    await connection.execute(
+                        "ALTER TABLE analytics_snapshots DISABLE ROW LEVEL SECURITY"
+                    )
+
+            with self.assertRaises(asyncpg.ForeignKeyViolationError):
+                async with connection.transaction():
+                    await connection.execute(
+                        "SELECT set_config('app.current_tenant', $1, true)", TENANT_A
+                    )
+                    await connection.execute(
+                        """
+                        INSERT INTO price_observations (
+                            tenant_id, market_data_set_id, instrument_reference,
+                            observed_at, known_at, close_price, currency, quality, source_hash
+                        ) VALUES (
+                            $1, $2, 'TEST.NS', '2026-08-26T10:00:00Z',
+                            '2026-08-26T10:01:00Z', 100, 'INR', 'verified', $3
+                        )
+                        """,
+                        TENANT_A,
+                        DATASET_B,
+                        "c" * 64,
+                    )
+        finally:
+            await connection.close()
+
+    async def test_agent_run_transition_is_one_way_and_non_executable(self) -> None:
+        connection = await asyncpg.connect(runtime_dsn(self.admin_dsn))
+        run_id = "10000000-0000-0000-0000-000000000020"
+        try:
+            async with connection.transaction():
+                await connection.execute(
+                    "SELECT set_config('app.current_tenant', $1, true)", TENANT_A
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO agent_runs (
+                        id, tenant_id, portfolio_id, thread_id, initiated_by, request_id,
+                        question_hash, as_of, known_at, graph_version, prompt_bundle_version,
+                        model_route, policy_version, allowed_tools, checkpoint_thread_id,
+                        state, can_execute
+                    ) VALUES (
+                        $1, $2, $3, '10000000-0000-0000-0000-000000000021', $4,
+                        'postgres-transition-test', $5, '2026-08-26T10:00:00Z',
+                        '2026-08-26T10:00:00Z', 'test/1', 'test/1',
+                        'deterministic-safe', 'test/1', '[]'::jsonb, $6, 'running', false
+                    )
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    run_id,
+                    TENANT_A,
+                    PORTFOLIO_A,
+                    USER_A,
+                    "d" * 64,
+                    "e" * 64,
+                )
+                await connection.execute(
+                    """
+                    UPDATE agent_runs
+                    SET state = 'completed', stages = '["output_validated"]'::jsonb,
+                        result_hash = $2, completed_at = now()
+                    WHERE id = $1
+                    """,
+                    run_id,
+                    "f" * 64,
+                )
+                self.assertEqual(
+                    await connection.fetchval("SELECT state FROM agent_runs WHERE id = $1", run_id),
+                    "completed",
+                )
+
+            with self.assertRaises(asyncpg.RaiseError):
+                async with connection.transaction():
+                    await connection.execute(
+                        "SELECT set_config('app.current_tenant', $1, true)", TENANT_A
+                    )
+                    await connection.execute(
+                        "UPDATE agent_runs SET state = 'running' WHERE id = $1", run_id
+                    )
+
+            with self.assertRaises(asyncpg.CheckViolationError):
+                async with connection.transaction():
+                    await connection.execute(
+                        "SELECT set_config('app.current_tenant', $1, true)", TENANT_A
+                    )
+                    await connection.execute(
+                        """
+                        INSERT INTO agent_runs (
+                            id, tenant_id, portfolio_id, thread_id, initiated_by, request_id,
+                            question_hash, as_of, known_at, graph_version,
+                            prompt_bundle_version, model_route, policy_version, allowed_tools,
+                            checkpoint_thread_id, state, can_execute
+                        ) VALUES (
+                            '10000000-0000-0000-0000-000000000022', $1, $2,
+                            '10000000-0000-0000-0000-000000000023', $3,
+                            'postgres-executable-test', $4, '2026-08-26T10:00:00Z',
+                            '2026-08-26T10:00:00Z', 'test/1', 'test/1',
+                            'deterministic-safe', 'test/1', '[]'::jsonb, $5, 'running', true
+                        )
+                        """,
+                        TENANT_A,
+                        PORTFOLIO_A,
+                        USER_A,
+                        "1" * 64,
+                        "2" * 64,
                     )
         finally:
             await connection.close()

@@ -17,6 +17,11 @@ SourceRole = Literal[
 ]
 
 
+def _require_timezone(*values: datetime) -> None:
+    if any(value.tzinfo is None or value.utcoffset() is None for value in values):
+        raise ValueError("all timestamps must include a UTC offset")
+
+
 class PortfolioCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     portfolio_type: PortfolioType
@@ -63,14 +68,342 @@ class UploadRead(BaseModel):
 
 
 class AnalyticsSnapshot(BaseModel):
+    snapshot_id: UUID | None = None
     portfolio_id: UUID
     quality_state: Literal["trusted", "needs_review", "partial", "stale"]
     as_of: datetime
+    known_at: datetime | None = None
     base_currency: str
     ledger_version: int
+    market_data_version: str | None = None
+    methodology_version: str | None = None
+    input_hash: str | None = None
     metrics: dict[str, str | None]
     rules: dict[str, Any]
     limitations: list[str]
+
+
+RightsBasis = Literal["licensed", "user_provided", "internal"]
+
+
+class PriceObservationCreate(BaseModel):
+    instrument_reference: str = Field(min_length=1, max_length=128)
+    observed_at: datetime
+    known_at: datetime
+    close_price: Decimal = Field(gt=0, decimal_places=10)
+    currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    quality: Literal["verified", "estimated"] = "verified"
+    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_observation_time(self) -> PriceObservationCreate:
+        _require_timezone(self.observed_at, self.known_at)
+        if self.known_at < self.observed_at:
+            raise ValueError("price known_at cannot be earlier than observed_at")
+        return self
+
+
+class CorporateActionCreate(BaseModel):
+    instrument_reference: str = Field(min_length=1, max_length=128)
+    action_type: Literal["split", "cash_dividend"]
+    effective_at: datetime
+    known_at: datetime
+    split_factor: Decimal | None = Field(default=None, gt=0, decimal_places=12)
+    cash_amount_per_unit: Decimal | None = Field(default=None, ge=0, decimal_places=10)
+    currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    source_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_action(self) -> CorporateActionCreate:
+        _require_timezone(self.effective_at, self.known_at)
+        if self.action_type == "split":
+            if self.split_factor is None or self.cash_amount_per_unit is not None:
+                raise ValueError("split requires only split_factor")
+        elif self.cash_amount_per_unit is None or self.split_factor is not None:
+            raise ValueError("cash_dividend requires only cash_amount_per_unit")
+        return self
+
+
+class MarketDataSetCreate(BaseModel):
+    provider: str = Field(min_length=2, max_length=80)
+    provider_version: str = Field(min_length=1, max_length=80)
+    rights_basis: RightsBasis
+    cutoff_at: datetime
+    known_at: datetime
+    prices: list[PriceObservationCreate] = Field(default_factory=list, max_length=100_000)
+    corporate_actions: list[CorporateActionCreate] = Field(default_factory=list, max_length=20_000)
+
+    @model_validator(mode="after")
+    def validate_cutoffs(self) -> MarketDataSetCreate:
+        _require_timezone(self.cutoff_at, self.known_at)
+        for price in self.prices:
+            _require_timezone(price.observed_at, price.known_at)
+        if self.known_at < self.cutoff_at:
+            raise ValueError("known_at cannot be earlier than cutoff_at")
+        if not self.prices:
+            raise ValueError("at least one price observation is required")
+        if any(price.observed_at > self.cutoff_at for price in self.prices):
+            raise ValueError("price observations cannot be later than cutoff_at")
+        if any(price.known_at > self.known_at for price in self.prices):
+            raise ValueError("price known_at cannot be later than the dataset known_at")
+        if any(action.effective_at > self.cutoff_at for action in self.corporate_actions):
+            raise ValueError("corporate-action effective_at cannot exceed dataset cutoff_at")
+        if any(action.known_at > self.known_at for action in self.corporate_actions):
+            raise ValueError("corporate-action known_at cannot exceed dataset known_at")
+        return self
+
+
+class MarketDataSetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    portfolio_id: UUID
+    provider: str
+    provider_version: str
+    rights_basis: str
+    cutoff_at: datetime
+    known_at: datetime
+    content_hash: str
+    status: str
+    created_at: datetime
+
+
+class AnalyticsRecompute(BaseModel):
+    market_data_set_id: UUID
+    as_of: datetime
+    known_at: datetime
+    max_price_age_days: int = Field(default=7, ge=0, le=31)
+
+    @model_validator(mode="after")
+    def validate_timestamps(self) -> AnalyticsRecompute:
+        _require_timezone(self.as_of, self.known_at)
+        return self
+
+
+class MetricRead(BaseModel):
+    metric_code: str
+    dimension_type: str
+    dimension_id: str
+    value: str | None
+    unit: str
+    status: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ValuationPositionRead(BaseModel):
+    instrument_reference: str
+    quantity: str
+    cost_basis: str
+    price: str | None
+    price_as_of: datetime | None
+    market_value: str | None
+    weight: str | None
+    status: str
+
+
+class AnalyticsSnapshotDetail(AnalyticsSnapshot):
+    snapshot_id: UUID
+    known_at: datetime
+    market_data_version: str
+    methodology_version: str
+    input_hash: str
+    metrics_list: list[MetricRead]
+    positions: list[ValuationPositionRead]
+
+
+class ScenarioCreate(BaseModel):
+    base_snapshot_id: UUID
+    name: str = Field(min_length=2, max_length=160)
+    price_shocks: dict[str, Decimal] = Field(default_factory=dict, max_length=200)
+    allocations: dict[str, Decimal] = Field(default_factory=dict, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_scenario(self) -> ScenarioCreate:
+        if not self.price_shocks and not self.allocations:
+            raise ValueError("provide at least one price shock or hypothetical allocation")
+        if any(
+            value < Decimal("-1") or value > Decimal("5") for value in self.price_shocks.values()
+        ):
+            raise ValueError("price shocks must be ratios between -1 and 5")
+        if any(value < 0 for value in self.allocations.values()):
+            raise ValueError("allocations cannot be negative")
+        return self
+
+
+class ScenarioRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    portfolio_id: UUID
+    base_snapshot_id: UUID
+    name: str
+    status: str
+    assumptions: dict[str, Any]
+    results: dict[str, Any]
+    constraint_results: list[dict[str, Any]]
+    engine_version: str
+    can_execute: Literal[False]
+    input_hash: str
+    created_at: datetime
+
+
+class EvidenceClaimCreate(BaseModel):
+    claim_key: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    statement: str = Field(min_length=1, max_length=500)
+    numeric_value: Decimal | None = Field(default=None, decimal_places=12)
+    unit: str | None = Field(default=None, max_length=24)
+
+
+class EvidenceCreate(BaseModel):
+    source_type: Literal["market", "fundamentals", "news", "sentiment", "research"]
+    title: str = Field(min_length=2, max_length=255)
+    publisher: str = Field(min_length=2, max_length=160)
+    published_at: datetime
+    retrieved_at: datetime
+    known_at: datetime
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    locator: dict[str, Any] = Field(default_factory=dict)
+    claims: list[EvidenceClaimCreate] = Field(min_length=1, max_length=100)
+    quality: Literal["reviewed", "verified"]
+    rights_basis: RightsBasis
+    cutoff_eligible: bool = True
+
+    @model_validator(mode="after")
+    def validate_evidence_time(self) -> EvidenceCreate:
+        _require_timezone(self.published_at, self.retrieved_at, self.known_at)
+        if self.retrieved_at < self.published_at:
+            raise ValueError("retrieved_at cannot be earlier than published_at")
+        if self.known_at < self.retrieved_at:
+            raise ValueError("known_at cannot be earlier than retrieved_at")
+        return self
+
+
+class EvidenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    portfolio_id: UUID
+    source_type: str
+    title: str
+    publisher: str
+    published_at: datetime
+    retrieved_at: datetime
+    known_at: datetime
+    content_hash: str
+    locator: dict[str, Any]
+    claims: list[dict[str, Any]]
+    quality: str
+    rights_basis: str
+    cutoff_eligible: bool
+    created_at: datetime
+
+
+class AgentRunStart(BaseModel):
+    run_id: UUID
+    thread_id: UUID
+    request_id: str = Field(min_length=8, max_length=96)
+    question_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    as_of: datetime
+    known_at: datetime
+    graph_version: str = Field(min_length=1, max_length=64)
+    prompt_bundle_version: str = Field(min_length=1, max_length=64)
+    model_route: str = Field(min_length=1, max_length=80)
+    policy_version: str = Field(min_length=1, max_length=64)
+    allowed_tools: list[Literal["core.analytics.read", "core.evidence.read"]] = Field(max_length=2)
+    checkpoint_thread_id: str = Field(min_length=32, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_run_time(self) -> AgentRunStart:
+        _require_timezone(self.as_of, self.known_at)
+        if self.known_at < self.as_of:
+            raise ValueError("known_at cannot be earlier than as_of")
+        return self
+
+
+class NumericCitation(BaseModel):
+    claim_key: str = Field(min_length=1, max_length=128)
+    evidence_id: str = Field(min_length=1, max_length=128)
+    value: str = Field(min_length=1, max_length=80)
+    unit: str = Field(min_length=1, max_length=24)
+    as_of: datetime
+    locator: str = Field(min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def validate_as_of(self) -> NumericCitation:
+        _require_timezone(self.as_of)
+        return self
+
+
+class AgentProposalWrite(BaseModel):
+    type: str
+    status: str
+    title: str
+    candidate_actions: list[dict[str, str]] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    can_execute: Literal[False]
+
+
+class AgentRunComplete(BaseModel):
+    state: Literal["completed", "failed", "timed_out"]
+    intent: str | None = Field(default=None, max_length=40)
+    stages: list[str] = Field(default_factory=list, max_length=30)
+    citations: list[NumericCitation] = Field(default_factory=list, max_length=500)
+    policy: dict[str, Any] = Field(default_factory=dict)
+    proposal: AgentProposalWrite | None = None
+    numeric_citation_coverage: Decimal = Field(default=Decimal("1"), ge=0, le=1)
+    answer: str | None = Field(default=None, min_length=1, max_length=30_000)
+    answer_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    error_code: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_terminal_shape(self) -> AgentRunComplete:
+        if self.state == "completed":
+            if (
+                self.answer is None
+                or self.answer_hash is None
+                or self.proposal is None
+                or self.error_code is not None
+            ):
+                raise ValueError(
+                    "completed runs require answer, answer_hash, and proposal without error_code"
+                )
+        elif (
+            self.answer is not None
+            or self.answer_hash is not None
+            or self.proposal is not None
+            or bool(self.citations)
+            or not self.error_code
+        ):
+            raise ValueError(
+                "failed and timed-out runs require error_code and cannot publish answer evidence"
+            )
+        return self
+
+
+class AgentRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    portfolio_id: UUID
+    thread_id: UUID
+    request_id: str
+    intent: str | None
+    as_of: datetime
+    known_at: datetime
+    graph_version: str
+    prompt_bundle_version: str
+    model_route: str
+    policy_version: str
+    allowed_tools: list[str]
+    state: str
+    stages: list[str]
+    citations: list[dict[str, Any]]
+    policy: dict[str, Any]
+    result_hash: str | None
+    error_code: str | None
+    can_execute: Literal[False]
+    started_at: datetime
+    completed_at: datetime | None
 
 
 LedgerEventType = Literal[

@@ -4,16 +4,19 @@ Last updated: 27 August 2026
 
 This file is updated with the README as implementation changes.
 
-## Current milestone: R0/R1 production foundation and immutable reconciliation
+## Current milestone: R2/R3 implementation checkpoint after the R0/R1 foundation
 
 ### Validation baseline
 
-- 24 Core API tests cover goal math, file safety, certified reconciliation/publication, telemetry
-  redaction, ledger invariants, deterministic holdings/analytics/monitors, and tenant isolation.
-- 7 agent tests cover execution suppression, data-quality gating, hard rules, evidence links,
-  bounded research/risk roles, and `Literal[False]` proposal output.
-- Four PostgreSQL 16 tests apply the real Alembic baseline and prove forced RLS, transaction-local
-  pool cleanup, non-bypass, and tenant-aware composite foreign keys.
+- 28 locally runnable Core API tests cover goal math, file safety, certified
+  reconciliation/publication, telemetry redaction, ledger invariants, point-in-time valuation,
+  deterministic returns/risk, constrained scenarios, evidence, durable run records, and tenant
+  isolation.
+- 9 agent tests cover execution suppression, data-quality gating, hard rules, numeric citations,
+  abstention, bounded research/risk roles, and `Literal[False]` proposal output.
+- Six PostgreSQL 16 tests apply the real Alembic chain and prove forced RLS, transaction-local pool
+  cleanup, non-bypass, tenant-aware composite foreign keys, and R2/R3 table isolation. They require
+  a PostgreSQL test service and are skipped by the SQLite-only local command.
 - CI compiles both Python services, builds the optimized web application, and scans the tree for execution capabilities and committed secrets.
 - The stack smoke gate builds every application container and exercises the browser proxy, PostgreSQL, MinIO quarantine, file upload, and bounded agent response.
 
@@ -52,6 +55,20 @@ This file is updated with the README as implementation changes.
   refresh, and immutable publication receipts.
 - AWS ECS/RDS/Redis/S3/SQS/Cognito/KMS/CloudFront/WAF Terraform with hard traffic and order gates.
 - Signed-digest CI/CD with SBOM, image scan, migrations, 5%/15-minute canary, and alarm rollback.
+- Sealed market-data versions with price observations, supported splits/cash dividends, rights,
+  checksums, economic dates, and information cutoffs.
+- Immutable valuation snapshots and position rows linked to ledger, market-data, and methodology
+  versions.
+- Decimal TWR, XIRR/MWR, annualized volatility, downside deviation, drawdown, price coverage, and
+  explicit unavailable/quality states.
+- Persisted market-stress scenarios that enforce the protected reserve, reject equal-weight
+  suggestions, exclude tax calculations, and always return `can_execute: false`.
+- Point-in-time evidence records with typed numeric claims, source rights, hashes, structured
+  locators, and snapshot/run lineage.
+- Durable Core agent-run/stage/proposal records plus PostgreSQL LangGraph checkpoint configuration,
+  tenant/portfolio/thread scope, output hashes, and terminal-persistence fail-closed behavior.
+- Numeric-citation validation that withholds unsupported answers and completed runs below 100%
+  numeric coverage.
 
 ### Partially implemented
 
@@ -60,20 +77,22 @@ This file is updated with the README as implementation changes.
   the retry-safe worker cutover is qualified in staging.
 - Storage interface: local and S3/MinIO quarantine adapters are active; approved/rendered publication lifecycle is pending.
 - Malware scanning: ClamAV streaming and fail-closed production enforcement are implemented; the optional local scanner profile must be enabled explicitly.
-- Agent persistence: PostgreSQL checkpoint initialization and IAM-token startup are implemented;
-  staging failover/long-running reconnection qualification is pending.
-- Agent evidence: ledger and monitor evidence is active; licensed market/news providers are pending.
+- Agent persistence: PostgreSQL checkpoint initialization, durable Core run/stage records, and
+  IAM-token startup are implemented; staging failover/long-running reconnection qualification is
+  pending.
+- Agent evidence: immutable evidence storage, cutoff validation, internal ledger/monitor/rule
+  evidence, and numeric citations are active; licensed market/news provider workers are pending.
 - Dashboard: current ledger metrics, holdings, monitors, upload, and bounded chat are active;
-  historical performance charts await valuation history.
+  citation display is active, while historical chart and scenario-comparison screens are pending.
 
 ### Not implemented yet
 
 - Cloud-account deployment and Cognito/passkey staging qualification.
 - Provider-specific parsing beyond the deliberately selected generic R1 CSV contract.
-- Historical price, benchmark, contribution, risk, and market-state calculations.
-- Evidence repository and point-in-time market/news tools.
+- Licensed historical price/news ingestion workers, benchmark/active return, contribution and
+  attribution, advanced corporate actions, and market-state classification.
 - Licensed point-in-time research connectors for the adapted TradingAgents subgraph.
-- Scenario persistence and comparison.
+- Scenario comparison UI and cost-model qualification.
 - User decisions, feedback, outcome evaluation, and offline self-correction.
 - Read-only Upstox connector.
 - Production deployment, penetration test, accessibility audit, and regulatory launch approval.
@@ -83,10 +102,14 @@ This file is updated with the README as implementation changes.
 1. Provision the staging account with all service counts gated to zero.
 2. Populate managed secrets and run the Cognito, RLS, telemetry, and restore exit gates.
 3. Run certified CSV concurrency/fuzz/malware qualification and sign the R1 report.
-4. Add historical valuation snapshots and deterministic return/risk analytics (R2).
-5. Add licensed evidence tools and complete durable agent-run qualification (R3).
-6. Implement and certify the isolated human order gateway only after R4 approvals.
+4. Run the R2 golden/property/reproducibility suite against PostgreSQL and licensed historical data;
+   add benchmark/active return, attribution, and the approved corporate-action subset.
+5. Connect licensed evidence workers and complete R3 cutoff, citation, failover, bounded-completion,
+   abstention, canary, and kill-switch qualification.
+6. Complete privacy/suitability controls and implement the isolated human order gateway only after
+   R4 approvals.
 
 ## Release statement
 
-The current milestone is suitable for local engineering and synthetic-data testing only. It is not approved for real portfolio advice or public production traffic.
+The R2/R3 checkpoint is suitable for local engineering and synthetic-data testing only. It is not
+an exit-gate pass and is not approved for real portfolio advice or public production traffic.
