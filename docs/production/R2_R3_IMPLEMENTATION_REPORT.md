@@ -204,12 +204,14 @@ production.
 
 | Gate | Current evidence | Status |
 |---|---|---|
-| Existing R1 regression | 28 locally runnable Core tests and 9 Agent tests | Pass |
+| Existing R1 regression | 29 locally runnable Core tests and 9 Agent tests | Pass |
 | Finance golden cases | Split, dividend, cutoff, transfer flow, TWR/drawdown, XIRR, reserve | Pass locally |
 | Numeric citation gate | Match/mismatch, fabricated dynamic claim, Core recomputation, suppression | Pass locally |
 | API vertical slice | Dataset → snapshot → scenario → evidence → durable run | Pass locally |
-| RLS/composite FK | 6 PostgreSQL tests defined; local runtime unavailable | Pending CI evidence |
-| Web type/build | Next.js 16 optimized build and TypeScript | Pass locally |
+| RLS/composite FK | 6 PostgreSQL tests plus forward Alembic migration | Pass in CI run 33068700407 |
+| Terraform topology | Format, provider initialization, and validation | Pass in CI run 33068700407 |
+| Web type/build | Next.js 16 optimized build and TypeScript | Pass locally and in CI |
+| Container vertical slice | MinIO upload and browser-to-Agent flow | Required PR gate; must pass before merge |
 | Licensed provider | Contract, credentials, rights tests | Blocked externally |
 | R2 complete exit | Full benchmark/attribution/property suite | Not approved |
 | R3 complete exit | ≥99% bounded runs, provider and abstention evaluation | Not approved |

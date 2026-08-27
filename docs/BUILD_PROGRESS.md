@@ -8,7 +8,7 @@ This file is updated with the README as implementation changes.
 
 ### Validation baseline
 
-- 28 locally runnable Core API tests cover goal math, file safety, certified
+- 29 locally runnable Core API tests cover goal math, file safety, certified
   reconciliation/publication, telemetry redaction, ledger invariants, point-in-time valuation,
   deterministic returns/risk, constrained scenarios, evidence, durable run records, and tenant
   isolation.

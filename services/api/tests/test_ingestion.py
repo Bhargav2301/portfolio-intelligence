@@ -8,11 +8,42 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from portfolio_api.config import Settings
 from portfolio_api.services.ingestion import UnsafeFileError, validate_and_summarize
 from portfolio_api.services.reconciliation import parse_certified_csv
+from portfolio_api.services.storage import s3_server_side_encryption
 
 
 class IngestionTests(unittest.TestCase):
+    def test_s3_encryption_is_backend_aware_and_production_still_uses_kms(self) -> None:
+        local_minio = Settings(
+            _env_file=None,
+            object_storage_endpoint="http://minio:9000",
+            object_storage_kms_key_id=None,
+        )
+        aws_development = Settings(
+            _env_file=None,
+            object_storage_endpoint=None,
+            object_storage_kms_key_id=None,
+        )
+        production_shape = Settings(
+            _env_file=None,
+            object_storage_endpoint=None,
+            object_storage_kms_key_id="arn:aws:kms:ap-south-1:123456789012:key/test",
+        )
+        self.assertEqual(s3_server_side_encryption(local_minio), {})
+        self.assertEqual(
+            s3_server_side_encryption(aws_development),
+            {"ServerSideEncryption": "AES256"},
+        )
+        self.assertEqual(
+            s3_server_side_encryption(production_shape),
+            {
+                "ServerSideEncryption": "aws:kms",
+                "SSEKMSKeyId": "arn:aws:kms:ap-south-1:123456789012:key/test",
+            },
+        )
+
     def test_certified_csv_formula_marker_becomes_publication_blocker(self) -> None:
         content = (
             b"schema_version,source_reference,event_type,trade_at,account_reference,currency,"

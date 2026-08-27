@@ -145,6 +145,10 @@ Create a private bucket with:
 - Lifecycle deletion rules.
 - An application identity limited to this bucket.
 
+The local MinIO container has no KMS and therefore receives no server-side-encryption header; its
+Docker volume is development-only. AWS development without a custom endpoint uses SSE-S3.
+Staging/production configuration requires `OBJECT_STORAGE_KMS_KEY_ID` and fails closed without it.
+
 ### Malware scanning
 
 Variables:

@@ -37,6 +37,24 @@ class StorageObjectInfo:
     metadata: dict[str, str]
 
 
+def s3_server_side_encryption(settings: Settings) -> dict[str, str]:
+    """Return encryption arguments supported by the configured S3 backend.
+
+    AWS defaults to SSE-S3 for non-production development when no key is supplied. A custom local
+    endpoint such as the unconfigured MinIO development container receives no SSE header because it
+    has no KMS. Staging and production cannot reach this fallback: Settings requires a KMS key.
+    """
+
+    if settings.object_storage_kms_key_id:
+        return {
+            "ServerSideEncryption": "aws:kms",
+            "SSEKMSKeyId": settings.object_storage_kms_key_id,
+        }
+    if settings.object_storage_endpoint:
+        return {}
+    return {"ServerSideEncryption": "AES256"}
+
+
 class LocalQuarantineStorage:
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()
@@ -105,6 +123,7 @@ class S3QuarantineStorage:
 
         self.bucket = settings.object_storage_bucket
         self.kms_key_id = settings.object_storage_kms_key_id
+        self.encryption_args = s3_server_side_encryption(settings)
         client_options: dict[str, Any] = {
             "region_name": settings.object_storage_region,
             "use_ssl": settings.object_storage_secure,
@@ -126,8 +145,7 @@ class S3QuarantineStorage:
             Body=content,
             ContentType="application/octet-stream",
             Metadata={"state": "quarantine"},
-            ServerSideEncryption="aws:kms" if self.kms_key_id else "AES256",
-            **({"SSEKMSKeyId": self.kms_key_id} if self.kms_key_id else {}),
+            **self.encryption_args,
         )
         return object_key
 
@@ -166,6 +184,8 @@ class S3QuarantineStorage:
         if self.kms_key_id:
             fields["x-amz-server-side-encryption"] = "aws:kms"
             fields["x-amz-server-side-encryption-aws-kms-key-id"] = self.kms_key_id
+        elif self.encryption_args.get("ServerSideEncryption") == "AES256":
+            fields["x-amz-server-side-encryption"] = "AES256"
         conditions: list[Any] = [
             {"Content-Type": content_type},
             {"x-amz-meta-sha256": sha256},
@@ -175,6 +195,8 @@ class S3QuarantineStorage:
         if self.kms_key_id:
             conditions.append({"x-amz-server-side-encryption": "aws:kms"})
             conditions.append({"x-amz-server-side-encryption-aws-kms-key-id": self.kms_key_id})
+        elif self.encryption_args.get("ServerSideEncryption") == "AES256":
+            conditions.append({"x-amz-server-side-encryption": "AES256"})
         policy = self.client.generate_presigned_post(
             Bucket=self.bucket,
             Key=object_key,
