@@ -8,7 +8,7 @@ This report lists configuration names only. It intentionally contains no secret 
 
 ## Executive finding
 
-The PI web application is deployable on OpenAI Sites today, but the TradingAgents service is a separate Python deployment. The hosted Sites project currently has no runtime environment variables configured. As a result, the Upstox OAuth connector and server-to-server LangGraph bridge correctly remain disabled.
+The PI web application is deployed on OpenAI Sites, while the TradingAgents service remains a separate Python deployment. The Sites environment now contains the protected OpenRouter chat key and internal bridge token, but the server-to-server LangGraph bridge remains disabled until the external runtime URL is configured and a saved Site version is redeployed.
 
 For the smallest working owner pilot, deploy the Python runtime with one supported LLM provider key and `PI_INTERNAL_API_TOKEN`, then configure the Sites worker with the runtime URL and the same bearer token. Upstox credentials are independent and are required only when read-only account linking is enabled.
 
@@ -153,8 +153,8 @@ LangSmith is not referenced by the current code. `LANGSMITH_API_KEY` and `LANGSM
 ## Deployment verification sequence
 
 1. Build the Sites application with `npm ci`, `npm run lint`, and `npm test`.
-2. Build the runtime image from `services/agent-runtime/Dockerfile`; run its tests and start exactly one Uvicorn worker.
-3. Confirm unauthenticated runtime requests return `401` and authenticated `/health` succeeds.
+2. Build the runtime image from `apps/sites-demo/services/agent-runtime/Dockerfile`; run its tests and start exactly one Uvicorn worker.
+3. Confirm unauthenticated protected runtime requests return `401` and the public `/health` endpoint succeeds without credentials.
 4. Configure one LLM provider and run a single confirmed test ticker with a strict timeout and cost cap.
 5. Configure Sites `TRADING_AGENTS_API_URL` and secret `TRADING_AGENTS_API_TOKEN`; redeploy the saved Sites version.
 6. Confirm the Agent desk reports the runtime version and graph engine `langgraph` before accepting a run.
@@ -163,4 +163,4 @@ LangSmith is not referenced by the current code. `LANGSMITH_API_KEY` and `LANGSM
 
 ## Audit conclusion
 
-The source contains no embedded credential values. The production Sites environment is currently empty, so agent execution and broker OAuth are not active. The minimum missing inputs are a deployed runtime URL, one shared internal bearer token, and one selected LLM provider credential. Durable LangGraph state is an implementation gap rather than a missing current secret; Postgres and Redis must be added before production or multi-user rollout.
+The source contains no embedded credential values. The OpenRouter credential and shared internal bearer token are staged in protected stores; the minimum remaining bridge input is the deployed runtime base URL. Agent execution and broker OAuth remain inactive until their independent deployment and connector gates are completed. Durable LangGraph state is an implementation gap rather than a missing current secret; Postgres and Redis must be added before production or multi-user rollout. See [`render-tradingagents-setup.md`](render-tradingagents-setup.md) for the exact owner-demo activation sequence.

@@ -34,16 +34,24 @@ The public snapshot uses invented fixtures and excludes owner holdings, quantiti
 
 ## Inactive integrations and remaining gates
 
-- The hosted environment does not currently have `PORTFOLIO_LLM_API_URL`, `PORTFOLIO_LLM_API_KEY`, and `PORTFOLIO_LLM_MODEL`; portfolio chat therefore uses the deterministic fallback.
-- The hosted environment does not currently have `TRADING_AGENTS_API_URL` and `TRADING_AGENTS_API_TOKEN`; live TradingAgents runs are not active.
+- Sites version 18 was privately redeployed with protected environment revision 4. Portfolio chat
+  uses the approved billed `google/gemma-4-26b-a4b-it` OpenRouter route. The free Gemma route
+  returned provider `429` responses during the 31 August preflight, while the approved standard
+  route completed successfully.
+- The protected `TRADING_AGENTS_API_TOKEN` is staged and matches the locally prepared runtime token,
+  but `TRADING_AGENTS_API_URL` is not configured because the external runtime is not yet deployed.
+  Live TradingAgents runs therefore remain inactive.
+- `z-ai/glm-5.3-flash` completed the OpenRouter preflight successfully. The legacy
+  `stealth/ox-alpha` identifier is retired and redirects callers to the stable GLM identifier.
 - Upstox requires its client ID, client secret, exact redirect URI, and connector-encryption key before read-only OAuth can be enabled.
 - Conversation history is bounded browser-session state, not durable server-side memory across reloads or devices.
 - Raw PDF/workbook storage remains blocked until private object storage, malware scanning, parser isolation, and retention/deletion controls are enabled.
 - Real-money advice and order execution remain intentionally unavailable.
 
-## Pull-request stack
+## GitHub merge status
 
-- PR #4: R2/R3 evidence and analytics checkpoint; open.
-- PR #5: demo MVP agent/chat bridge; open and based on PR #4.
-- The Sites sync PR is based on PR #5 so reviewers can inspect this checkpoint independently.
-- No pull request is merged by this update; `main` remains unchanged pending explicit approval.
+- PR #4: R2/R3 evidence and analytics checkpoint; merged into `main`.
+- PR #5: demo MVP agent/chat bridge; merged into `main`.
+- PR #6: sanitized Sites demo and current-status sync; merged into `main`.
+- The local status is based on the merged GitHub `main` history plus the activation evidence in this
+  update.

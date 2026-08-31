@@ -49,7 +49,7 @@ For the shortest file-to-chat showcase, follow the [TradingAgents demo runbook](
 
 A responsive, owner-isolated Sites demo is active at [Portfolio Intelligence](https://portfolio-intelligence.satoshinara.chatgpt.site). The public repository now carries a sanitized, testable source snapshot under [`apps/sites-demo/`](apps/sites-demo/) and a [current status report](docs/SITES_DEMO_STATUS.md).
 
-The snapshot keeps the data-to-agent-to-chat wiring, spreadsheet inference, consolidated-lot normalization, PDF metadata hashing, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, runtime credentials, the live Sites project identifier, and generated build caches. The hosted deployment remains on deterministic fallback until an approved LLM endpoint and the private TradingAgents runtime bridge are configured.
+The snapshot keeps the data-to-agent-to-chat wiring, spreadsheet inference, consolidated-lot normalization, PDF metadata hashing, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, runtime credentials, the live Sites project identifier, and generated build caches. The owner-only hosted deployment now uses the approved OpenRouter Gemma chat route; the private TradingAgents runtime bridge remains disabled until its external HTTPS base URL is configured.
 
 ## Who it is for
 

@@ -27,6 +27,11 @@ The runtime pins TradingAgents to commit
 `a33fd4c0f134485a43553a2c23a63cb14adbd88f`. Set provider-specific API keys
 required by the selected TradingAgents data and LLM providers.
 
+For the approved owner-demo deployment on Render, including the exact monorepo root,
+secret-handling steps, billed Gemma quick-thinking route, GLM deep-thinking route,
+health checks, and Sites bridge activation, follow
+[`../../docs/render-tradingagents-setup.md`](../../docs/render-tradingagents-setup.md).
+
 Every request must include `Authorization: Bearer <PI_INTERNAL_API_TOKEN>` and a
 validated `X-PI-Owner-Email` injected by the PI server. For development only,
 `PI_ALLOW_INSECURE_LOCAL=true` bypasses this check.
