@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786603655564,
+      "tag": "0000_clean_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786606817955,
+      "tag": "0001_massive_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786607037654,
+      "tag": "0002_icy_echo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787742724033,
+      "tag": "0003_huge_captain_britain",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787758457166,
+      "tag": "0004_redundant_stature",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787758908553,
+      "tag": "0005_needy_blue_marvel",
+      "breakpoints": true
+    }
+  ]
+}

@@ -25,7 +25,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from portfolio_api.config import Settings, get_settings
 from portfolio_api.database import apply_tenant_scope, get_tenant_session
-from portfolio_api.models import Job, Portfolio, Upload
+from portfolio_api.models import EvidenceItem, Job, Portfolio, Upload
 from portfolio_api.observability import current_trace_id
 from portfolio_api.schemas import SourceRole, UploadInitiate, UploadInitiated, UploadRead
 from portfolio_api.services.control_plane import (
@@ -33,6 +33,7 @@ from portfolio_api.services.control_plane import (
     idempotent_replay,
     store_idempotency,
 )
+from portfolio_api.services.demo_evidence import extract_demo_evidence
 from portfolio_api.services.file_security import (
     MalwareDetected,
     MalwareScannerUnavailable,
@@ -160,6 +161,68 @@ async def _accept_direct_upload(
         parser_summary=summary.to_dict(),
     )
     session.add(upload)
+    if source_role == "research":
+        extraction = await run_in_threadpool(
+            extract_demo_evidence,
+            file.filename or "upload",
+            content,
+        )
+        if extraction is not None:
+            evidence = EvidenceItem(
+                id=uuid4(),
+                tenant_id=context.tenant_id,
+                portfolio_id=portfolio_id,
+                source_type=extraction.source_type,
+                title=extraction.title,
+                publisher=extraction.publisher,
+                published_at=extraction.published_at,
+                retrieved_at=datetime.now(UTC),
+                known_at=datetime.now(UTC),
+                content_hash=summary.sha256,
+                locator={
+                    "object_key": object_key,
+                    "provider_record_id": ",".join(extraction.instruments[:10])[:500],
+                },
+                claims=list(extraction.claims),
+                quality="reviewed",
+                rights_basis="user_provided",
+                cutoff_eligible=True,
+                created_by=context.user_id,
+            )
+            session.add(evidence)
+            upload.state = "evidence_ready"
+            upload.parser_summary = {
+                **summary.to_dict(),
+                "evidence": {
+                    "item_id": str(evidence.id),
+                    **extraction.summary(),
+                },
+            }
+            session.add(
+                audit_event(
+                    context,
+                    action="upload.evidence_indexed",
+                    resource_type="evidence_item",
+                    resource_id=evidence.id,
+                    details={
+                        "upload_id": str(upload.id),
+                        "parser_name": extraction.parser_name,
+                        "claim_count": len(extraction.claims),
+                        "source_type": extraction.source_type,
+                        "rights_basis": "user_provided",
+                    },
+                )
+            )
+        else:
+            upload.parser_summary = {
+                **summary.to_dict(),
+                "evidence": {
+                    "item_id": None,
+                    "claim_count": 0,
+                    "instruments": [],
+                    "status": "unsupported_layout",
+                },
+            }
     session.add(
         audit_event(
             context,

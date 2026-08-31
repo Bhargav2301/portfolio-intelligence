@@ -334,12 +334,25 @@ class NumericCitation(BaseModel):
         return self
 
 
+class AgentPredictionWrite(BaseModel):
+    signal: Literal["BULLISH", "BEARISH", "NEUTRAL", "ABSTAIN"]
+    confidence: Literal["low", "medium", "high"]
+    horizon: str = Field(min_length=1, max_length=64)
+    summary: str = Field(min_length=1, max_length=500)
+    factors: list[str] = Field(default_factory=list, max_length=30)
+    engine: str = Field(min_length=1, max_length=64)
+    upstream_repository: str = Field(min_length=1, max_length=160)
+    upstream_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    not_trade_instruction: Literal[True]
+
+
 class AgentProposalWrite(BaseModel):
     type: str
     status: str
     title: str
     candidate_actions: list[dict[str, str]] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    prediction: AgentPredictionWrite | None = None
     can_execute: Literal[False]
 
 

@@ -121,10 +121,16 @@ jobs:
             -F 'source_role=brokerage_ledger' \
             -F 'file=@/tmp/portfolio-smoke.csv;type=text/csv' \
             | jq -e '.state == "review_required" and .authority_level == "ledger_candidate"'
+          printf 'instrument,latest_price,return_1_week,return_3_months,stock_score\nYatharth Hospital,926.15,8.03,12.44,8\n' > /tmp/portfolio-research.csv
+          curl -fsS -X POST http://localhost:3000/api/core/v1/uploads/direct \
+            -F "portfolio_id=$portfolio_id" \
+            -F 'source_role=research' \
+            -F 'file=@/tmp/portfolio-research.csv;type=text/csv' \
+            | jq -e '.state == "evidence_ready" and .parser_summary.evidence.claim_count == 4'
           curl -fsS -X POST http://localhost:3000/api/agents/v1/agent-runs \
             -H 'Content-Type: application/json' \
-            -d "{\"portfolio_id\":\"$portfolio_id\",\"question\":\"What should I review first?\"}" \
-            | jq -e '.state == "completed" and .policy.decision == "limited"'
+            -d "{\"portfolio_id\":\"$portfolio_id\",\"instrument\":\"YATHARTH.NS\",\"question\":\"What is the research signal?\"}" \
+            | jq -e '.state == "completed" and .policy.decision == "limited" and .prediction.signal == "BULLISH" and .proposal.can_execute == false'
       - name: Print service logs on failure
         if: failure()
         run: docker compose logs --no-color

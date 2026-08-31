@@ -28,6 +28,13 @@ export type UploadResult = {
   parser_summary: {
     warnings?: string[];
     structure?: Record<string, unknown>;
+    evidence?: {
+      item_id?: string | null;
+      claim_count?: number;
+      instruments?: string[];
+      parser_name?: string;
+      status?: string;
+    };
   };
 };
 
@@ -55,6 +62,17 @@ export type AgentResult = {
     candidate_actions?: Array<Record<string, string>>;
     constraints?: string[];
     can_execute: false;
+  };
+  prediction: {
+    signal: "BULLISH" | "BEARISH" | "NEUTRAL" | "ABSTAIN";
+    confidence: "low" | "medium" | "high";
+    horizon: string;
+    summary: string;
+    factors: string[];
+    engine: string;
+    upstream_repository: string;
+    upstream_commit: string;
+    not_trade_instruction: true;
   };
   perspectives: Record<string, string>;
   telemetry: Record<string, unknown>;

@@ -8,7 +8,7 @@ The portfolio research graph is adapted from TauricResearch/TradingAgents commit
 - Separate market, fundamentals, news, and sentiment analyst reports.
 - A bounded bull/bear research comparison.
 - Aggressive, neutral, and conservative risk perspectives.
-- A final policy-controlled proposal for human review.
+- A final evidence-weighted categorical signal and policy-controlled proposal for human review.
 
 ## Deliberate changes
 
@@ -25,6 +25,8 @@ The portfolio research graph is adapted from TauricResearch/TradingAgents commit
   production LangGraph state uses a tenant/portfolio/thread-scoped PostgreSQL checkpoint.
 - If Core cannot persist the terminal record, the service withholds the answer.
 - Debate and risk rounds are capped at one in this integration milestone.
+- The demo adapter emits only bullish, bearish, neutral, or abstain after analyst and risk stages;
+  it does not invent a target, expected return, quantity, or order.
 - No broker order client, order endpoint, or execution tool is present.
 
 The sibling `TradingAgents` checkout is reference material only. Production builds use the adapted

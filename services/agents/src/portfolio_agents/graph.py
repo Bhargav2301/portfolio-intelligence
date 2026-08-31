@@ -16,6 +16,13 @@ from portfolio_agents.evidence import (
 )
 from portfolio_agents.policy import evaluate_request, safe_response_text
 from portfolio_agents.settings import AgentSettings, get_agent_settings
+from portfolio_agents.tradingagents_adapter import (
+    ADAPTER_VERSION,
+    UPSTREAM_COMMIT,
+    UPSTREAM_REPOSITORY,
+    claim_matches_instrument,
+    derive_prediction,
+)
 
 
 class PortfolioAgentState(TypedDict, total=False):
@@ -35,6 +42,7 @@ class PortfolioAgentState(TypedDict, total=False):
     research_summary: str
     scenario_notes: list[str]
     proposal: dict[str, Any]
+    prediction: dict[str, Any]
     policy: dict[str, Any]
     answer: str
     evidence: list[dict[str, Any]]
@@ -81,9 +89,11 @@ def assemble_context(state: PortfolioAgentState) -> PortfolioAgentState:
         "citations": [],
         "limitations": list(state.get("snapshot", {}).get("limitations") or []),
         "telemetry": {
-            "architecture": "tradingagents-adapted-research-v2",
-            "graph_version": "spi-tradingagents-adapter/2.0.0",
-            "prompt_bundle_version": "spi-evidence-synthesis/2.0.0",
+            "architecture": "tradingagents-adapted-research-v3",
+            "graph_version": ADAPTER_VERSION,
+            "prompt_bundle_version": "spi-evidence-synthesis/3.0.0",
+            "upstream_repository": UPSTREAM_REPOSITORY,
+            "upstream_commit": UPSTREAM_COMMIT,
             "debate_rounds": 1,
             "risk_rounds": 1,
             "external_tool_calls": 0,
@@ -189,15 +199,17 @@ def run_asset_analysts(state: PortfolioAgentState) -> PortfolioAgentState:
             f"{instrument or 'The requested security'} is not present in the published holdings; "
             "no position metrics are available."
         )
-    reports = {"market": market}
-    for source_type in ("fundamentals", "news", "sentiment"):
+    reports: dict[str, str] = {}
+    for source_type in ("market", "fundamentals", "news", "sentiment"):
         source_items = [item for item in evidence if item.get("source_type") == source_type]
-        if not source_items:
-            reports[source_type] = f"No approved point-in-time {source_type} evidence was supplied."
-            continue
         statements: list[str] = []
         for item in source_items[:3]:
-            for claim in (item.get("claims") or [])[:3]:
+            relevant_claims = [
+                claim
+                for claim in item.get("claims") or []
+                if claim_matches_instrument(claim, instrument)
+            ]
+            for claim in relevant_claims[:8]:
                 if claim.get("numeric_value") is not None and claim.get("unit"):
                     statements.append(
                         f"{claim['claim_key']} is {claim['numeric_value']} {claim['unit']} "
@@ -206,9 +218,12 @@ def run_asset_analysts(state: PortfolioAgentState) -> PortfolioAgentState:
                     citations = merge_citations(citations, numeric_citation(item, claim))
                 else:
                     statements.append(f"{claim.get('statement', 'Evidence claim')} [{item['id']}].")
-        reports[source_type] = " ".join(statements) or (
-            f"Approved {source_type} evidence has no usable typed claims."
-        )
+        if source_type == "market":
+            reports[source_type] = " ".join([market, *statements])
+        else:
+            reports[source_type] = " ".join(statements) or (
+                f"No approved point-in-time {source_type} evidence was supplied for this security."
+            )
     return {
         "stages": _append_stage(state, "asset_analysts_completed"),
         "analyst_reports": reports,
@@ -381,6 +396,26 @@ def run_risk_panel(state: PortfolioAgentState) -> PortfolioAgentState:
     }
 
 
+def produce_prediction(state: PortfolioAgentState) -> PortfolioAgentState:
+    prediction = derive_prediction(
+        instrument=state.get("instrument"),
+        evidence=state.get("evidence") or [],
+        analyst_reports=state.get("analyst_reports") or {},
+        perspectives=state.get("perspectives") or {},
+    ).to_dict()
+    proposal = dict(state.get("proposal") or {})
+    proposal["prediction"] = prediction
+    telemetry = dict(state.get("telemetry") or {})
+    telemetry["prediction_factor_count"] = len(prediction.get("factors") or [])
+    telemetry["prediction_engine"] = prediction["engine"]
+    return {
+        "stages": _append_stage(state, "tradingagents_prediction_completed"),
+        "prediction": prediction,
+        "proposal": proposal,
+        "telemetry": telemetry,
+    }
+
+
 def apply_policy_gate(state: PortfolioAgentState) -> PortfolioAgentState:
     decision = evaluate_request(state.get("question") or "", state.get("snapshot") or {})
     limitations = list(dict.fromkeys([*(state.get("limitations") or []), *decision.limitations]))
@@ -404,6 +439,7 @@ def compose_response(state: PortfolioAgentState) -> PortfolioAgentState:
     notes = state.get("scenario_notes") or []
     synthesis = state.get("research_summary") or ""
     proposal = state.get("proposal") or {}
+    prediction = state.get("prediction") or {}
     if policy.get("decision") == "suppress_execution":
         opening = (
             "Portfolio Intelligence cannot place or execute an order. It can inspect a "
@@ -421,6 +457,15 @@ def compose_response(state: PortfolioAgentState) -> PortfolioAgentState:
         sections.append("Findings:\n- " + "\n- ".join(findings))
     if synthesis:
         sections.append("Research panel:\n" + synthesis)
+    if prediction.get("signal"):
+        sections.append(
+            "TradingAgents research signal:\n- "
+            + str(prediction["signal"])
+            + " with "
+            + str(prediction.get("confidence", "low"))
+            + " confidence. "
+            + str(prediction.get("summary", ""))
+        )
     if proposal.get("title"):
         sections.append(f"Proposal for review:\n- {proposal['title']}")
     if notes:
@@ -452,6 +497,16 @@ def validate_output(state: PortfolioAgentState) -> PortfolioAgentState:
     policy["reasons"] = [*(policy.get("reasons") or []), "NUMERIC_CITATION_REQUIRED"]
     limitations = list(state.get("limitations") or [])
     limitations.append("An answer was withheld because one or more numeric claims lacked evidence.")
+    prediction = dict(state.get("prediction") or {})
+    if prediction:
+        prediction.update(
+            {
+                "signal": "ABSTAIN",
+                "confidence": "low",
+                "summary": "The evidence validator withheld the directional output.",
+            }
+        )
+    proposal["prediction"] = prediction
     return {
         "stages": _append_stage(state, "output_suppressed"),
         "answer": (
@@ -459,6 +514,7 @@ def validate_output(state: PortfolioAgentState) -> PortfolioAgentState:
             "resolved to cutoff-eligible evidence. No trade was placed."
         ),
         "proposal": proposal,
+        "prediction": prediction,
         "policy": policy,
         "limitations": list(dict.fromkeys(limitations)),
         "telemetry": telemetry,
@@ -477,6 +533,7 @@ def build_graph(settings: AgentSettings | None = None, checkpointer=None):
     builder.add_node("synthesize_research", synthesize_research)
     builder.add_node("plan_scenario", plan_scenario)
     builder.add_node("run_risk_panel", run_risk_panel)
+    builder.add_node("produce_prediction", produce_prediction)
     builder.add_node("apply_policy_gate", apply_policy_gate)
     builder.add_node("compose_response", compose_response)
     builder.add_node("validate_output", validate_output)
@@ -489,7 +546,8 @@ def build_graph(settings: AgentSettings | None = None, checkpointer=None):
     builder.add_edge("run_bull_bear_debate", "synthesize_research")
     builder.add_edge("synthesize_research", "plan_scenario")
     builder.add_edge("plan_scenario", "run_risk_panel")
-    builder.add_edge("run_risk_panel", "apply_policy_gate")
+    builder.add_edge("run_risk_panel", "produce_prediction")
+    builder.add_edge("produce_prediction", "apply_policy_gate")
     builder.add_edge("apply_policy_gate", "compose_response")
     builder.add_edge("compose_response", "validate_output")
     builder.add_edge("validate_output", END)

@@ -18,7 +18,7 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 | Clean monorepo | Implemented |
 | Responsive web workspace | Implemented |
 | Portfolio creation and listing | Implemented |
-| Native PDF, scanned-PDF detection, XLS, XLSX, and CSV intake | Implemented foundation |
+| Native PDF, scanned-PDF detection, XLS, XLSX, and CSV intake | Implemented; supplied demo layouts normalize into typed evidence |
 | File signature, size, active-content, and workbook safety checks | Implemented foundation |
 | Upload status and metadata | Implemented |
 | Deterministic goal CAGR and current-ledger analytics | Implemented |
@@ -32,7 +32,7 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 | Malware scanner | Implemented; optional local Docker profile, mandatory in production |
 | Human-confirmed ledger publication | Implemented append-only API and certified-CSV workbench |
 | Holdings, cash, P/L, and concentration monitors | Implemented deterministic foundation |
-| TradingAgents research architecture | Adapted from pinned commit as isolated analyst/risk subgraph |
+| TradingAgents research architecture | Adapted from pinned commit with analyst/debate/risk stages and categorical demo signal |
 | Point-in-time evidence and numeric citations | Implemented R3 checkpoint; licensed connectors pending |
 | Durable agent run provenance and checkpoints | Implemented; staging failover qualification pending |
 | Production authentication and registered-adviser mode | Not enabled |
@@ -42,6 +42,14 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 The current build is an engineering and synthetic-data test candidate. It is not yet approved for
 real-money decision-making: licensed data, AWS staging, R2/R3 evaluation, security, accessibility,
 and regulatory gates remain open.
+
+For the shortest file-to-chat showcase, follow the [TradingAgents demo runbook](docs/DEMO_MVP.md).
+
+## Hosted Sites demo checkpoint
+
+A responsive, owner-isolated Sites demo is active at [Portfolio Intelligence](https://portfolio-intelligence.satoshinara.chatgpt.site). The public repository now carries a sanitized, testable source snapshot under [`apps/sites-demo/`](apps/sites-demo/) and a [current status report](docs/SITES_DEMO_STATUS.md).
+
+The snapshot keeps the data-to-agent-to-chat wiring, spreadsheet inference, consolidated-lot normalization, PDF metadata hashing, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, runtime credentials, the live Sites project identifier, and generated build caches. The hosted deployment remains on deterministic fallback until an approved LLM endpoint and the private TradingAgents runtime bridge are configured.
 
 ## Who it is for
 

@@ -96,6 +96,29 @@ class CoreApiTests(unittest.TestCase):
         self.assertEqual(duplicate.status_code, 409)
         self.assertEqual(duplicate.json()["detail"]["code"], "DUPLICATE_UPLOAD")
 
+    def test_research_csv_is_indexed_as_cutoff_safe_agent_evidence(self) -> None:
+        portfolio = self.create_portfolio()
+        content = (
+            b"instrument,latest_price,return_1_month,stock_score\nYatharth Hospital,926.15,9.99,8\n"
+        )
+        accepted = self.client.post(
+            "/v1/uploads/direct",
+            data={"portfolio_id": portfolio["id"], "source_role": "research"},
+            files={"file": ("market.csv", content, "text/csv")},
+        )
+        self.assertEqual(accepted.status_code, 201, accepted.text)
+        evidence_summary = accepted.json()["parser_summary"]["evidence"]
+        self.assertEqual(accepted.json()["state"], "evidence_ready")
+        self.assertEqual(evidence_summary["claim_count"], 3)
+        context = self.client.get(f"/v1/portfolios/{portfolio['id']}/agent-context")
+        self.assertEqual(context.status_code, 200, context.text)
+        indexed = next(
+            item for item in context.json()["evidence"] if item["id"] == evidence_summary["item_id"]
+        )
+        self.assertEqual(indexed["source_type"], "market")
+        self.assertEqual(indexed["quality"], "reviewed")
+        self.assertEqual(len(indexed["claims"]), 3)
+
     def test_goal_cagr_is_deterministic(self) -> None:
         response = self.client.get(
             "/v1/goals/required-cagr",
@@ -544,6 +567,17 @@ class CoreApiTests(unittest.TestCase):
                     "type": "review",
                     "status": "proposal_only",
                     "title": "Review evidence",
+                    "prediction": {
+                        "signal": "NEUTRAL",
+                        "confidence": "low",
+                        "horizon": "research_snapshot",
+                        "summary": "The evidence is mixed.",
+                        "factors": ["mixed evidence"],
+                        "engine": "spi-tradingagents-adapter/3.0.0",
+                        "upstream_repository": "TauricResearch/TradingAgents",
+                        "upstream_commit": "a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+                        "not_trade_instruction": True,
+                    },
                     "can_execute": False,
                 },
                 "numeric_citation_coverage": "1",
