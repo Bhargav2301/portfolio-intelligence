@@ -1,0 +1,1 @@
+ALTER TABLE `evidence_documents` ADD `symbol` text;

@@ -1,10 +1,19 @@
 # Build progress
 
-Last updated: 27 August 2026
+Last updated: 31 August 2026
 
 This file is updated with the README as implementation changes.
 
 ## Current milestone: R2/R3 implementation checkpoint after the R0/R1 foundation
+
+### Hosted Sites demo checkpoint
+
+- Hosted Sites version 18 is active with owner-only access; the public repository contains a sanitized source snapshot at `apps/sites-demo/`.
+- The responsive Sites UI includes collapsible navigation, portfolio setup, native CSV/TSV/XLS/XLSX/JSON selection, consolidated workbook flattening, PDF metadata plus SHA-256 registration, deterministic analytics, scenarios, evidence views, account-data deletion, and an in-session conversational copilot.
+- The public normalizer uses runtime mappings or review-only derived symbols; customer-specific ticker aliases and private portfolio statistics are not compiled into the repository.
+- Local validation passes the optimized Sites build, 9 JavaScript tests, ESLint, and 6 Python ingestion/policy/LangGraph tests.
+- Durable server-side chat memory, raw private document storage, the external TradingAgents runtime bridge, an approved live LLM endpoint, and Upstox OAuth remain activation or production-hardening work.
+- No model, broker, or runtime secret is committed; the hosted demo currently uses deterministic fallback behavior.
 
 ### Validation baseline
 
