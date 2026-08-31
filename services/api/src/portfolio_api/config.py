@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     field_encryption_key: str | None = None
     kms_data_key_id: str | None = None
     kms_capability_signing_key_id: str | None = None
+    agent_core_shared_secret: str | None = None
 
     aws_region: str = "ap-south-1"
     job_queue_url: str | None = None
@@ -107,6 +108,8 @@ class Settings(BaseSettings):
                 missing.append("TELEMETRY_REDACTION_VERIFIED=true")
             if not self.otel_exporter_otlp_endpoint:
                 missing.append("OTEL_EXPORTER_OTLP_ENDPOINT")
+            if not self.agent_core_shared_secret:
+                missing.append("AGENT_CORE_SHARED_SECRET")
             if not self.job_queue_url:
                 missing.append("JOB_QUEUE_URL")
             if not self.audit_queue_url:

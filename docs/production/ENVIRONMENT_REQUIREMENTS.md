@@ -10,6 +10,8 @@ GitHub environment. Never place values in tfvars, task definitions, browser vari
   until R4 approval. Per-user grants are Core-written KMS envelope ciphertext.
 - `market-data` and `news-data`: licensed provider credentials; absent credentials require agent
   abstention.
+- `agent-internal`: at least 48 random bytes in `shared_secret`; the same version is injected into
+  Core and Agents. Missing values fail closed, and rotation rolls both services together.
 - `cognito-bff`: client secret, created from the confidential user-pool client.
 - `server-session`: at least 32 random bytes in `session_secret`.
 - `redis`: TLS URL with the rotated authentication token.
@@ -41,6 +43,9 @@ uses the `spi_migration` IAM database user.
   Block Public Access, versioning, checksums, SSE-KMS, TLS-only policy, and lifecycle rules.
 - SQS: jobs/audit queues, long polling, KMS, five-attempt DLQs, age/depth alarms. PostgreSQL remains
   authoritative for job, idempotency, checkpoint, and outbox state.
+- R2/R3 PostgreSQL migrations: forced RLS and tenant-aware composite keys on market-data,
+  valuation/metric, scenario, evidence, agent-run/stage/evidence, and proposal tables; runtime and
+  reporting roles remain non-owner and `NOBYPASSRLS`.
 
 ## Compute and delivery
 

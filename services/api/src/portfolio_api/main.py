@@ -8,7 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from portfolio_api.config import get_settings
 from portfolio_api.database import close_database, initialize_database
 from portfolio_api.observability import configure_opentelemetry, install_request_telemetry
-from portfolio_api.routers import analytics, health, ledger, portfolios, reconciliation, uploads
+from portfolio_api.routers import (
+    analytics,
+    health,
+    intelligence,
+    ledger,
+    portfolios,
+    reconciliation,
+    uploads,
+)
 
 settings = get_settings()
 
@@ -22,7 +30,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="Portfolio Intelligence Core API",
-    version="0.1.0",
+    version="0.3.0",
     description=(
         "Read-only portfolio system of record, secure file intake, and deterministic analytics. "
         "No order execution endpoints exist."
@@ -57,3 +65,4 @@ app.include_router(uploads.router)
 app.include_router(analytics.router)
 app.include_router(ledger.router)
 app.include_router(reconciliation.router)
+app.include_router(intelligence.router)

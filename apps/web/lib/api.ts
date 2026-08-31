@@ -28,16 +28,32 @@ export type UploadResult = {
   parser_summary: {
     warnings?: string[];
     structure?: Record<string, unknown>;
+    evidence?: {
+      item_id?: string | null;
+      claim_count?: number;
+      instruments?: string[];
+      parser_name?: string;
+      status?: string;
+    };
   };
 };
 
 export type AgentResult = {
   run_id: string;
+  thread_id: string;
   state: string;
   answer: string;
   stages: string[];
   policy: { decision?: string; reasons?: string[] };
   evidence: Array<Record<string, unknown>>;
+  citations: Array<{
+    claim_key: string;
+    evidence_id: string;
+    value: string;
+    unit: string;
+    as_of: string;
+    locator: string;
+  }>;
   limitations: string[];
   proposal: {
     type?: string;
@@ -46,6 +62,17 @@ export type AgentResult = {
     candidate_actions?: Array<Record<string, string>>;
     constraints?: string[];
     can_execute: false;
+  };
+  prediction: {
+    signal: "BULLISH" | "BEARISH" | "NEUTRAL" | "ABSTAIN";
+    confidence: "low" | "medium" | "high";
+    horizon: string;
+    summary: string;
+    factors: string[];
+    engine: string;
+    upstream_repository: string;
+    upstream_commit: string;
+    not_trade_instruction: true;
   };
   perspectives: Record<string, string>;
   telemetry: Record<string, unknown>;
@@ -128,10 +155,15 @@ export type PublicationAccepted = {
 };
 
 export type AnalyticsSnapshot = {
+  snapshot_id?: string | null;
   portfolio_id: string;
   quality_state: "trusted" | "needs_review" | "partial" | "stale";
   as_of: string;
+  known_at?: string | null;
   ledger_version: number;
+  market_data_version?: string | null;
+  methodology_version?: string | null;
+  input_hash?: string | null;
   metrics: Record<string, string | null>;
   limitations: string[];
 };
@@ -271,4 +303,3 @@ export async function uploadObject(
   });
   if (!response.ok) throw new Error("The quarantined object upload failed.");
 }
-

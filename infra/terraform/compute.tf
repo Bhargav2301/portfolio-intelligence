@@ -175,6 +175,9 @@ resource "aws_ecs_task_definition" "service" {
         { name = "REDIS_URL", valueFrom = "${aws_secretsmanager_secret.application["redis"].arn}:url::" },
         ] : each.key == "agents" ? [
         { name = "OPENAI_API_KEY", valueFrom = "${aws_secretsmanager_secret.application["openai"].arn}:api_key::" },
+        { name = "AGENT_CORE_SHARED_SECRET", valueFrom = "${aws_secretsmanager_secret.application["agent-internal"].arn}:shared_secret::" },
+        ] : each.key == "api" ? [
+        { name = "AGENT_CORE_SHARED_SECRET", valueFrom = "${aws_secretsmanager_secret.application["agent-internal"].arn}:shared_secret::" },
       ] : []
       logConfiguration = {
         logDriver = "awslogs"

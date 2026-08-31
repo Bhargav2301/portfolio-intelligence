@@ -128,6 +128,9 @@ class AgentGraphTests(unittest.TestCase):
         self.assertIn("asset_analysts_completed", result["stages"])
         self.assertIn("research_debate_completed", result["stages"])
         self.assertIn("risk_panel_completed", result["stages"])
+        self.assertIn("tradingagents_prediction_completed", result["stages"])
+        self.assertEqual(result["prediction"]["signal"], "ABSTAIN")
+        self.assertTrue(result["prediction"]["not_trade_instruction"])
         self.assertEqual(result["telemetry"]["debate_rounds"], 1)
         self.assertIn("[ledger:snapshot]", result["answer"])
 

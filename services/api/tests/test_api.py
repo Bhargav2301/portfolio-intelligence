@@ -4,6 +4,7 @@ import hashlib
 import os
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -94,6 +95,29 @@ class CoreApiTests(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 409)
         self.assertEqual(duplicate.json()["detail"]["code"], "DUPLICATE_UPLOAD")
+
+    def test_research_csv_is_indexed_as_cutoff_safe_agent_evidence(self) -> None:
+        portfolio = self.create_portfolio()
+        content = (
+            b"instrument,latest_price,return_1_month,stock_score\nYatharth Hospital,926.15,9.99,8\n"
+        )
+        accepted = self.client.post(
+            "/v1/uploads/direct",
+            data={"portfolio_id": portfolio["id"], "source_role": "research"},
+            files={"file": ("market.csv", content, "text/csv")},
+        )
+        self.assertEqual(accepted.status_code, 201, accepted.text)
+        evidence_summary = accepted.json()["parser_summary"]["evidence"]
+        self.assertEqual(accepted.json()["state"], "evidence_ready")
+        self.assertEqual(evidence_summary["claim_count"], 3)
+        context = self.client.get(f"/v1/portfolios/{portfolio['id']}/agent-context")
+        self.assertEqual(context.status_code, 200, context.text)
+        indexed = next(
+            item for item in context.json()["evidence"] if item["id"] == evidence_summary["item_id"]
+        )
+        self.assertEqual(indexed["source_type"], "market")
+        self.assertEqual(indexed["quality"], "reviewed")
+        self.assertEqual(len(indexed["claims"]), 3)
 
     def test_goal_cagr_is_deterministic(self) -> None:
         response = self.client.get(
@@ -313,6 +337,263 @@ class CoreApiTests(unittest.TestCase):
         )
         self.assertEqual(blocked.status_code, 422)
         self.assertEqual(blocked.json()["detail"]["code"], "RECONCILIATION_REQUIRED")
+
+    def test_r2_snapshot_scenario_and_r3_evidence_run_are_durable(self) -> None:
+        portfolio = self.create_portfolio()
+        self.assertEqual(self.publish_event(portfolio["id"]).status_code, 201)
+        self.assertEqual(
+            self.publish_event(
+                portfolio["id"],
+                event_type="buy",
+                instrument_reference="RELIANCE.NS",
+                quantity="1000",
+                price="1500",
+                gross_amount="1500000",
+            ).status_code,
+            201,
+        )
+        as_of = datetime.now(UTC) + timedelta(seconds=1)
+        known_at = as_of + timedelta(seconds=1)
+        dataset = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/market-data/datasets",
+            headers={"Idempotency-Key": "dataset-" + portfolio["id"]},
+            json={
+                "provider": "licensed-test-feed",
+                "provider_version": "2026-08-27T12:00Z",
+                "rights_basis": "licensed",
+                "cutoff_at": as_of.isoformat(),
+                "known_at": known_at.isoformat(),
+                "prices": [
+                    {
+                        "instrument_reference": "RELIANCE.NS",
+                        "observed_at": as_of.isoformat(),
+                        "known_at": known_at.isoformat(),
+                        "close_price": "1500",
+                        "currency": "INR",
+                        "quality": "verified",
+                        "source_hash": "a" * 64,
+                    }
+                ],
+                "corporate_actions": [],
+            },
+        )
+        self.assertEqual(dataset.status_code, 201, dataset.text)
+
+        recomputed = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/analytics/recompute",
+            headers={"Idempotency-Key": "analytics-" + portfolio["id"]},
+            json={
+                "market_data_set_id": dataset.json()["id"],
+                "as_of": as_of.isoformat(),
+                "known_at": known_at.isoformat(),
+                "max_price_age_days": 7,
+            },
+        )
+        self.assertEqual(recomputed.status_code, 201, recomputed.text)
+        snapshot = recomputed.json()
+        self.assertEqual(snapshot["quality_state"], "trusted")
+        self.assertEqual(snapshot["metrics"]["current_value"], "4000000.00000000")
+        self.assertEqual(snapshot["market_data_version"], "2026-08-27T12:00Z")
+
+        method_variant = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/analytics/recompute",
+            headers={"Idempotency-Key": "analytics-variant-" + portfolio["id"]},
+            json={
+                "market_data_set_id": dataset.json()["id"],
+                "as_of": as_of.isoformat(),
+                "known_at": known_at.isoformat(),
+                "max_price_age_days": 6,
+            },
+        )
+        self.assertEqual(method_variant.status_code, 201, method_variant.text)
+        self.assertNotEqual(
+            method_variant.json()["snapshot_id"],
+            snapshot["snapshot_id"],
+            "result-affecting method parameters must create a distinct immutable snapshot",
+        )
+
+        latest = self.client.get(f"/v1/portfolios/{portfolio['id']}/analytics/latest")
+        self.assertEqual(latest.status_code, 200, latest.text)
+        self.assertEqual(latest.json()["snapshot_id"], method_variant.json()["snapshot_id"])
+
+        historical_context = self.client.get(
+            f"/v1/portfolios/{portfolio['id']}/agent-context",
+            params={"as_of": as_of.isoformat()},
+        )
+        self.assertEqual(historical_context.status_code, 200, historical_context.text)
+        self.assertNotIn(
+            "analytics_snapshot",
+            {item["source_type"] for item in historical_context.json()["evidence"]},
+        )
+
+        scenario = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/scenarios",
+            headers={"Idempotency-Key": "scenario-" + portfolio["id"]},
+            json={
+                "base_snapshot_id": snapshot["snapshot_id"],
+                "name": "Equity drawdown",
+                "price_shocks": {"RELIANCE.NS": "-0.10"},
+                "allocations": {},
+            },
+        )
+        self.assertEqual(scenario.status_code, 201, scenario.text)
+        self.assertFalse(scenario.json()["can_execute"])
+        self.assertEqual(scenario.json()["results"]["stressed_total"], "3850000.00000000")
+
+        blocked = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/scenarios",
+            headers={"Idempotency-Key": "scenario-blocked-" + portfolio["id"]},
+            json={
+                "base_snapshot_id": snapshot["snapshot_id"],
+                "name": "Attempt to use reserve",
+                "price_shocks": {},
+                "allocations": {"RELIANCE.NS": "1"},
+            },
+        )
+        self.assertEqual(blocked.status_code, 201, blocked.text)
+        self.assertEqual(blocked.json()["status"], "blocked")
+        self.assertIn(
+            "PROTECTED_CASH_BREACH",
+            {item["code"] for item in blocked.json()["constraint_results"]},
+        )
+
+        run_cutoff = known_at + timedelta(seconds=1)
+        context = self.client.get(
+            f"/v1/portfolios/{portfolio['id']}/agent-context",
+            params={"as_of": run_cutoff.isoformat()},
+        )
+        self.assertEqual(context.status_code, 200, context.text)
+        analytics_evidence = next(
+            item
+            for item in context.json()["evidence"]
+            if item["source_type"] == "analytics_snapshot"
+        )
+        current_value_claim = next(
+            claim for claim in analytics_evidence["claims"] if claim["claim_key"] == "current_value"
+        )
+
+        run_id = str(uuid4())
+        thread_id = str(uuid4())
+        started = self.client.post(
+            f"/v1/portfolios/{portfolio['id']}/agent-runs",
+            json={
+                "run_id": run_id,
+                "thread_id": thread_id,
+                "request_id": "request-" + run_id,
+                "question_hash": "b" * 64,
+                "as_of": run_cutoff.isoformat(),
+                "known_at": run_cutoff.isoformat(),
+                "graph_version": "test-graph/1",
+                "prompt_bundle_version": "test-prompt/1",
+                "model_route": "deterministic-safe",
+                "policy_version": "test-policy/1",
+                "allowed_tools": ["core.analytics.read", "core.evidence.read"],
+                "checkpoint_thread_id": "c" * 64,
+            },
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        invalid = self.client.post(
+            f"/v1/agent-runs/{run_id}/complete",
+            json={
+                "state": "completed",
+                "stages": ["response_composed"],
+                "citations": [],
+                "policy": {"decision": "allow_analysis"},
+                "proposal": {
+                    "type": "review",
+                    "status": "proposal_only",
+                    "title": "Review",
+                    "can_execute": True,
+                },
+                "numeric_citation_coverage": "1",
+                "answer_hash": "d" * 64,
+            },
+        )
+        self.assertEqual(invalid.status_code, 422)
+
+        fabricated = self.client.post(
+            f"/v1/agent-runs/{run_id}/complete",
+            json={
+                "state": "completed",
+                "stages": ["output_validated"],
+                "citations": [
+                    {
+                        "claim_key": "fabricated_value",
+                        "evidence_id": "ledger:snapshot",
+                        "value": "999",
+                        "unit": "INR",
+                        "as_of": run_cutoff.isoformat(),
+                        "locator": f"/v1/portfolios/{portfolio['id']}/holdings",
+                    }
+                ],
+                "policy": {"decision": "allow_analysis"},
+                "proposal": {
+                    "type": "review",
+                    "status": "proposal_only",
+                    "title": "Review",
+                    "can_execute": False,
+                },
+                "numeric_citation_coverage": "1",
+                "answer": "Fabricated value is INR 999 [ledger:snapshot].",
+                "answer_hash": hashlib.sha256(
+                    b"Fabricated value is INR 999 [ledger:snapshot]."
+                ).hexdigest(),
+            },
+        )
+        self.assertEqual(fabricated.status_code, 422, fabricated.text)
+
+        answer = (
+            f"Portfolio value is INR {current_value_claim['numeric_value']} "
+            f"[{analytics_evidence['id']}]."
+        )
+        completed = self.client.post(
+            f"/v1/agent-runs/{run_id}/complete",
+            json={
+                "state": "completed",
+                "intent": "portfolio_review",
+                "stages": ["context_assembled", "output_validated"],
+                "citations": [
+                    {
+                        "claim_key": "current_value",
+                        "evidence_id": analytics_evidence["id"],
+                        "value": current_value_claim["numeric_value"],
+                        "unit": current_value_claim["unit"],
+                        "as_of": analytics_evidence["as_of"],
+                        "locator": analytics_evidence["uri"],
+                    }
+                ],
+                "policy": {"decision": "allow_analysis"},
+                "proposal": {
+                    "type": "review",
+                    "status": "proposal_only",
+                    "title": "Review evidence",
+                    "prediction": {
+                        "signal": "NEUTRAL",
+                        "confidence": "low",
+                        "horizon": "research_snapshot",
+                        "summary": "The evidence is mixed.",
+                        "factors": ["mixed evidence"],
+                        "engine": "spi-tradingagents-adapter/3.0.0",
+                        "upstream_repository": "TauricResearch/TradingAgents",
+                        "upstream_commit": "a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+                        "not_trade_instruction": True,
+                    },
+                    "can_execute": False,
+                },
+                "numeric_citation_coverage": "1",
+                "answer": answer,
+                "answer_hash": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
+            },
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        self.assertEqual(completed.json()["state"], "completed")
+        self.assertFalse(completed.json()["can_execute"])
+
+        other_tenant = self.client.get(
+            f"/v1/agent-runs/{run_id}",
+            headers={"X-Workspace-Id": "00000000-0000-0000-0000-000000000099"},
+        )
+        self.assertEqual(other_tenant.status_code, 404)
 
 
 if __name__ == "__main__":

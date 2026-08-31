@@ -490,6 +490,364 @@ class OutboxEvent(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MarketDataSet(Base):
+    """Immutable, tenant-scoped manifest for licensed point-in-time market inputs."""
+
+    __tablename__ = "market_data_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "portfolio_id",
+            "provider",
+            "provider_version",
+            name="uq_market_data_set_version",
+        ),
+        Index("ix_market_data_sets_cutoff", "tenant_id", "portfolio_id", "cutoff_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    portfolio_id: Mapped[UUID] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80))
+    provider_version: Mapped[str] = mapped_column(String(80))
+    rights_basis: Mapped[str] = mapped_column(String(24))
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="sealed")
+    created_by: Mapped[UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PriceObservation(Base):
+    __tablename__ = "price_observations"
+    __table_args__ = (
+        CheckConstraint("known_at >= observed_at", name="ck_price_time"),
+        UniqueConstraint(
+            "market_data_set_id",
+            "instrument_reference",
+            "observed_at",
+            name="uq_price_observation",
+        ),
+        Index(
+            "ix_price_observations_lookup",
+            "tenant_id",
+            "market_data_set_id",
+            "instrument_reference",
+            "observed_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    market_data_set_id: Mapped[UUID] = mapped_column(
+        ForeignKey("market_data_sets.id"), nullable=False
+    )
+    instrument_reference: Mapped[str] = mapped_column(String(128))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    close_price: Mapped[Decimal] = mapped_column(Numeric(28, 10))
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    quality: Mapped[str] = mapped_column(String(24), default="verified")
+    source_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class CorporateAction(Base):
+    __tablename__ = "corporate_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "market_data_set_id",
+            "instrument_reference",
+            "action_type",
+            "effective_at",
+            name="uq_corporate_action",
+        ),
+        Index(
+            "ix_corporate_actions_lookup",
+            "tenant_id",
+            "market_data_set_id",
+            "instrument_reference",
+            "effective_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    market_data_set_id: Mapped[UUID] = mapped_column(
+        ForeignKey("market_data_sets.id"), nullable=False
+    )
+    instrument_reference: Mapped[str] = mapped_column(String(128))
+    action_type: Mapped[str] = mapped_column(String(32))
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    split_factor: Mapped[Decimal | None] = mapped_column(Numeric(28, 12), nullable=True)
+    cash_amount_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    source_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AnalyticsSnapshotRecord(Base):
+    __tablename__ = "analytics_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "portfolio_id",
+            "input_hash",
+            name="uq_analytics_snapshot_inputs",
+        ),
+        Index(
+            "ix_analytics_snapshots_latest",
+            "tenant_id",
+            "portfolio_id",
+            "as_of",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    portfolio_id: Mapped[UUID] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    market_data_set_id: Mapped[UUID] = mapped_column(
+        ForeignKey("market_data_sets.id"), nullable=False
+    )
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ledger_version: Mapped[int] = mapped_column(Integer)
+    market_data_version: Mapped[str] = mapped_column(String(80))
+    methodology_version: Mapped[str] = mapped_column(String(40))
+    benchmark_code: Mapped[str] = mapped_column(String(64))
+    base_currency: Mapped[str] = mapped_column(String(3))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    quality_state: Mapped[str] = mapped_column(String(24))
+    limitations: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ValuationPosition(Base):
+    __tablename__ = "valuation_positions"
+    __table_args__ = (
+        UniqueConstraint(
+            "analytics_snapshot_id",
+            "instrument_reference",
+            name="uq_valuation_position",
+        ),
+        Index("ix_valuation_positions_snapshot", "tenant_id", "analytics_snapshot_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    analytics_snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analytics_snapshots.id"), nullable=False
+    )
+    instrument_reference: Mapped[str] = mapped_column(String(128))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(28, 10))
+    cost_basis: Mapped[Decimal] = mapped_column(Numeric(28, 8))
+    price: Mapped[Decimal | None] = mapped_column(Numeric(28, 10), nullable=True)
+    price_as_of: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    market_value: Mapped[Decimal | None] = mapped_column(Numeric(28, 8), nullable=True)
+    weight: Mapped[Decimal | None] = mapped_column(Numeric(20, 12), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="valued")
+
+
+class MetricValue(Base):
+    __tablename__ = "metric_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "analytics_snapshot_id",
+            "metric_code",
+            "dimension_type",
+            "dimension_id",
+            name="uq_metric_value_dimension",
+        ),
+        Index("ix_metric_values_snapshot", "tenant_id", "analytics_snapshot_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    analytics_snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analytics_snapshots.id"), nullable=False
+    )
+    metric_code: Mapped[str] = mapped_column(String(64))
+    dimension_type: Mapped[str] = mapped_column(String(32), default="portfolio")
+    dimension_id: Mapped[str] = mapped_column(String(128), default="portfolio")
+    value: Mapped[Decimal | None] = mapped_column(Numeric(28, 12), nullable=True)
+    unit: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(24), default="available")
+    details: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+
+
+class ScenarioRun(Base):
+    __tablename__ = "scenario_runs"
+    __table_args__ = (
+        CheckConstraint("can_execute = false", name="ck_scenario_never_executes"),
+        Index("ix_scenario_runs_portfolio", "tenant_id", "portfolio_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    portfolio_id: Mapped[UUID] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(nullable=False)
+    base_snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("analytics_snapshots.id"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), default="completed")
+    assumptions: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    results: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    constraint_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, default=list)
+    engine_version: Mapped[str] = mapped_column(String(40))
+    can_execute: Mapped[bool] = mapped_column(Boolean, default=False)
+    input_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EvidenceItem(Base):
+    __tablename__ = "evidence_items"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "portfolio_id", "content_hash", name="uq_evidence_hash"),
+        Index("ix_evidence_cutoff", "tenant_id", "portfolio_id", "known_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    portfolio_id: Mapped[UUID] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(255))
+    publisher: Mapped[str] = mapped_column(String(160))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    locator: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    claims: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, default=list)
+    quality: Mapped[str] = mapped_column(String(24), default="pending")
+    rights_basis: Mapped[str] = mapped_column(String(24))
+    cutoff_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class EvidenceLink(Base):
+    __tablename__ = "evidence_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "from_type",
+            "from_id",
+            "evidence_item_id",
+            "claim_key",
+            name="uq_evidence_link",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    from_type: Mapped[str] = mapped_column(String(40))
+    from_id: Mapped[UUID] = mapped_column(nullable=False)
+    evidence_item_id: Mapped[UUID] = mapped_column(ForeignKey("evidence_items.id"), nullable=False)
+    relation: Mapped[str] = mapped_column(String(24), default="supports")
+    claim_key: Mapped[str] = mapped_column(String(128))
+
+
+class AgentRunRecord(Base):
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        CheckConstraint("can_execute = false", name="ck_agent_run_never_executes"),
+        CheckConstraint(
+            "state IN ('running', 'completed', 'failed', 'timed_out')",
+            name="ck_agent_run_state",
+        ),
+        CheckConstraint(
+            "completed_at IS NULL OR completed_at >= started_at",
+            name="ck_agent_run_completed_time",
+        ),
+        CheckConstraint(
+            """
+            (state = 'running' AND completed_at IS NULL AND result_hash IS NULL
+                AND error_code IS NULL)
+            OR
+            (state = 'completed' AND completed_at IS NOT NULL AND result_hash IS NOT NULL
+                AND error_code IS NULL)
+            OR
+            (state IN ('failed', 'timed_out') AND completed_at IS NOT NULL
+                AND result_hash IS NULL AND error_code IS NOT NULL)
+            """,
+            name="ck_agent_run_completion_shape",
+        ),
+        UniqueConstraint("tenant_id", "request_id", name="uq_agent_run_request"),
+        Index("ix_agent_runs_portfolio", "tenant_id", "portfolio_id", "started_at"),
+        Index("ix_agent_runs_thread", "tenant_id", "thread_id", "started_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    portfolio_id: Mapped[UUID] = mapped_column(ForeignKey("portfolios.id"), nullable=False)
+    thread_id: Mapped[UUID] = mapped_column(nullable=False)
+    initiated_by: Mapped[UUID] = mapped_column(nullable=False)
+    request_id: Mapped[str] = mapped_column(String(96))
+    question_hash: Mapped[str] = mapped_column(String(64))
+    intent: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    known_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    graph_version: Mapped[str] = mapped_column(String(64))
+    prompt_bundle_version: Mapped[str] = mapped_column(String(64))
+    model_route: Mapped[str] = mapped_column(String(80))
+    policy_version: Mapped[str] = mapped_column(String(64))
+    allowed_tools: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    checkpoint_thread_id: Mapped[str] = mapped_column(String(255))
+    state: Mapped[str] = mapped_column(String(24), default="running")
+    stages: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSON_TYPE, default=list)
+    policy: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    result_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    can_execute: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentRunStep(Base):
+    __tablename__ = "agent_run_steps"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('completed', 'failed', 'timed_out')",
+            name="ck_agent_step_state",
+        ),
+        UniqueConstraint("agent_run_id", "node_name", "attempt", name="uq_agent_run_step"),
+        Index("ix_agent_run_steps_run", "tenant_id", "agent_run_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    agent_run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    node_name: Mapped[str] = mapped_column(String(80))
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    state: Mapped[str] = mapped_column(String(24), default="completed")
+    public_summary: Mapped[str] = mapped_column(String(255))
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AgentRunEvidence(Base):
+    __tablename__ = "agent_run_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "relation IN ('supports', 'contradicts', 'contextualizes')",
+            name="ck_agent_run_evidence_relation",
+        ),
+        UniqueConstraint(
+            "agent_run_id", "evidence_item_id", "claim_key", name="uq_agent_run_evidence"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_uuid)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    agent_run_id: Mapped[UUID] = mapped_column(ForeignKey("agent_runs.id"), nullable=False)
+    evidence_item_id: Mapped[UUID] = mapped_column(ForeignKey("evidence_items.id"), nullable=False)
+    claim_key: Mapped[str] = mapped_column(String(128))
+    relation: Mapped[str] = mapped_column(String(24), default="supports")
+
+
 class AgentProposalRecord(Base):
     __tablename__ = "agent_proposals"
     __table_args__ = (

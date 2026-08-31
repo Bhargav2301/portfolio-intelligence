@@ -2,7 +2,8 @@
 
 Portfolio Intelligence is a read-only investment analysis workspace for Indian investors. It combines uploaded portfolio files, deterministic financial calculations, bounded AI research, and a conversational review experience.
 
-The product is being rebuilt from a clean repository baseline dated 26 August 2026.
+The product was rebuilt from a clean repository baseline dated 26 August 2026. R0/R1 are locally
+verified; R2/R3 now have an implementation checkpoint but are not production-approved.
 
 ## The important promise
 
@@ -17,22 +18,38 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 | Clean monorepo | Implemented |
 | Responsive web workspace | Implemented |
 | Portfolio creation and listing | Implemented |
-| Native PDF, scanned-PDF detection, XLS, XLSX, and CSV intake | Implemented foundation |
+| Native PDF, scanned-PDF detection, XLS, XLSX, and CSV intake | Implemented; supplied demo layouts normalize into typed evidence |
 | File signature, size, active-content, and workbook safety checks | Implemented foundation |
 | Upload status and metadata | Implemented |
-| Deterministic goal CAGR and empty-portfolio analytics | Implemented |
-| LangGraph portfolio-analysis workflow | Implemented foundation |
+| Deterministic goal CAGR and current-ledger analytics | Implemented |
+| Versioned prices and supported corporate actions | Implemented API; licensed feed pending |
+| Immutable valuation and risk snapshots | Implemented R2 checkpoint |
+| TWR, MWR/XIRR, volatility, downside deviation, drawdown | Implemented; full qualification pending |
+| Protected-reserve market-stress scenarios | Implemented; always non-executable |
+| LangGraph portfolio-analysis workflow | Implemented bounded graph |
 | AI provider connection | Configured through secrets; requires a key |
 | PostgreSQL, Redis, and private quarantine object storage | Included in local Docker stack |
 | Malware scanner | Implemented; optional local Docker profile, mandatory in production |
-| Human-confirmed manual ledger publication | Implemented append-only API; file reconciliation UI is next |
+| Human-confirmed ledger publication | Implemented append-only API and certified-CSV workbench |
 | Holdings, cash, P/L, and concentration monitors | Implemented deterministic foundation |
-| TradingAgents research architecture | Adapted as isolated, non-executable analyst/risk subgraph |
+| TradingAgents research architecture | Adapted from pinned commit with analyst/debate/risk stages and categorical demo signal |
+| Point-in-time evidence and numeric citations | Implemented R3 checkpoint; licensed connectors pending |
+| Durable agent run provenance and checkpoints | Implemented; staging failover qualification pending |
 | Production authentication and registered-adviser mode | Not enabled |
 | Upstox read-only connection | Contract and secrets prepared; implementation pending |
 | Trade execution | Intentionally absent |
 
-The current build is an engineering foundation and first vertical slice. It is not yet suitable for real-money decision-making.
+The current build is an engineering and synthetic-data test candidate. It is not yet approved for
+real-money decision-making: licensed data, AWS staging, R2/R3 evaluation, security, accessibility,
+and regulatory gates remain open.
+
+For the shortest file-to-chat showcase, follow the [TradingAgents demo runbook](docs/DEMO_MVP.md).
+
+## Hosted Sites demo checkpoint
+
+A responsive, owner-isolated Sites demo is active at [Portfolio Intelligence](https://portfolio-intelligence.satoshinara.chatgpt.site). The public repository now carries a sanitized, testable source snapshot under [`apps/sites-demo/`](apps/sites-demo/) and a [current status report](docs/SITES_DEMO_STATUS.md).
+
+The snapshot keeps the data-to-agent-to-chat wiring, spreadsheet inference, consolidated-lot normalization, PDF metadata hashing, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, runtime credentials, the live Sites project identifier, and generated build caches. The hosted deployment remains on deterministic fallback until an approved LLM endpoint and the private TradingAgents runtime bridge are configured.
 
 ## Who it is for
 
@@ -65,7 +82,8 @@ A new investor will:
 | Set goals, reserve, risk, and exclusions | Owns and confirms | Validates consistency |
 | Publish data from a file | Must approve | Scans, parses, and flags conflicts |
 | Calculate portfolio numbers | Reviews | Deterministic code is authoritative |
-| Research holdings | Selects scope | Bounded agents collect and compare evidence |
+| Accept market/research evidence | Confirms source rights or delegates an approved provider | Enforces cutoff, hash, and schema |
+| Research holdings | Selects scope and cutoff | Bounded agents compare allowlisted evidence |
 | Consider a change | Makes the decision | Produces conditional scenarios |
 | Place an investment order | Done outside this product | No execution capability |
 | Improve AI behavior | Approves releases indirectly through product governance | Offline evaluation; no silent self-training |
@@ -75,11 +93,12 @@ A new investor will:
 ~~~mermaid
 flowchart TD
     U["User and web app"] --> A["Core portfolio API"]
-    A --> D["PostgreSQL ledger and analytics"]
+    A --> D["Ledger and versioned analytics"]
     A --> F["Secure file intake"]
     U --> G["LangGraph agent service"]
     G --> A
-    G --> M["Approved model and data providers"]
+    G --> C["Durable checkpoints"]
+    A --> E["Point-in-time evidence"]
 ~~~
 
 The core rule is simple: AI explains data; it does not create financial truth.
@@ -89,10 +108,12 @@ The core rule is simple: AI explains data; it does not create financial truth.
 3. A parser reads safe content without running macros, formulas, or PDF instructions.
 4. Candidate rows wait for reconciliation and user approval.
 5. Approved rows enter the append-only ledger; manual events require explicit publication confirmation.
-6. Deterministic code calculates portfolio metrics.
-7. The adapted TradingAgents research panel receives typed metrics, evidence, rules, and an as-of timestamp.
-8. A policy gate blocks unsupported or constraint-breaking output.
-9. The user receives an answer with evidence and remains the decision-maker.
+6. An approved market-data version freezes prices, corporate actions, rights, and known-at time.
+7. Deterministic code persists a valuation/risk snapshot tied to ledger, dataset, and methodology versions.
+8. The adapted TradingAgents research panel receives typed metrics, evidence, rules, and a cutoff.
+9. Policy and numeric-citation gates suppress unsupported or constraint-breaking output.
+10. Core persists the public run stages, evidence links, output hash, and `can_execute: false` proposal.
+11. The user receives an answer with evidence and remains the decision-maker.
 
 ## Quick start for a non-technical user
 
@@ -101,7 +122,7 @@ The core rule is simple: AI explains data; it does not create financial truth.
 - A computer with at least 8 GB RAM; 16 GB is recommended.
 - Docker Desktop.
 - Git.
-- An OpenAI API key for live AI answers.
+- An OpenAI API key only if you want live-language synthesis; deterministic safe mode needs no key.
 - About 10–15 minutes for first setup.
 
 ### Windows setup
@@ -218,7 +239,9 @@ Do not create a committed secrets file. The repository contains:
 - [Secrets setup guide](docs/SECRETS_SETUP.md): where each credential comes from and how to test it.
 - [Local environment generator](scripts/bootstrap_env.py): creates strong local-only secrets and writes .env.
 
-The only external credential required for the first live AI milestone is OPENAI_API_KEY. Database, Redis, object-storage, encryption, authentication, market-data, LangSmith, email, and Upstox settings are documented separately and are enabled only when the related feature is used.
+The local setup generator also creates one shared internal secret used by the Agent API when it
+records runs through Core. For production, OpenAI, market/news providers, Cognito, storage, database,
+and internal-service values live in AWS Secrets Manager and KMS; none belong in source control.
 
 ## Portfolio protections
 
@@ -237,7 +260,10 @@ These are versioned portfolio rules. An AI response cannot change them. A future
 - XLSM, XLSB, and ODS are rejected in the first milestone.
 - Production configuration fails closed if malware scanning, authentication, or encryption is disabled.
 - Every tenant-owned record carries a workspace identifier.
-- PostgreSQL row-level-security migration is included.
+- PostgreSQL row-level security is enabled and forced on every tenant-owned R0–R3 table.
+- Tenant-aware composite foreign keys reject cross-workspace parent identifiers.
+- Historical analytics and evidence enforce both economic (`as_of`) and information (`known_at`) cutoffs.
+- If terminal agent-run persistence or numeric-citation validation fails, the answer is withheld.
 - Broker integration is read-only by design.
 - No trade/order route or tool exists.
 
@@ -267,6 +293,8 @@ Implementation must trace back to these documents. If code and a requirement con
 
 See [Unified architecture and delivery roadmap](docs/UNIFIED_ARCHITECTURE_AND_ROADMAP.md)
 for the integration boundary, implemented endpoints, production topology, and remaining launch gates.
+See the [R2/R3 implementation report](docs/production/R2_R3_IMPLEMENTATION_REPORT.md) for formulas,
+data lineage, human/autonomous boundaries, API contracts, and the precise unfinished exit evidence.
 
 ## Delivery roadmap
 
@@ -289,17 +317,17 @@ for the integration boundary, implemented endpoints, production topology, and re
 
 ### Milestone 3 — Analytics and evidence
 
-- TWR/MWR, benchmark, attribution, concentration, volatility, and drawdown.
-- Market-state snapshots.
-- Research evidence repository and citations.
-- Scenario engine with reserve and allocation constraints.
+- Implemented checkpoint: versioned valuation, TWR/MWR, volatility, downside deviation, drawdown,
+  evidence records, numeric citations, and constrained scenarios.
+- Pending: benchmark/active return, attribution, advanced corporate actions, market state, licensed
+  provider workers, and full finance property qualification.
 
 ### Milestone 4 — Production agents and controls
 
-- Durable PostgreSQL checkpoints.
-- Point-in-time research tools.
-- Risk/compliance gate.
-- User-visible agent telemetry.
+- Implemented checkpoint: durable PostgreSQL checkpoints and Core run records, cutoff-safe context,
+  risk/compliance gate, public stages, evidence, citations, and structural no-execution contracts.
+- Pending: licensed research tools, interrupts/SSE/cancellation, ≥99% bounded-completion evaluation,
+  canary qualification, and kill-switch exercise.
 - Offline feedback and outcome evaluation.
 
 ### Milestone 5 — Beta hardening

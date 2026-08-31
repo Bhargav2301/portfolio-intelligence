@@ -9,6 +9,7 @@ locals {
     "redis",
     "malware-scanner",
     "alerting",
+    "agent-internal",
   ])
 }
 
