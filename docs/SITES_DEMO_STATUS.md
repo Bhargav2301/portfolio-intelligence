@@ -4,7 +4,7 @@ Last verified: 2 September 2026
 
 ## Outcome
 
-Portfolio Intelligence Sites version 19 is active at [portfolio-intelligence.satoshinara.chatgpt.site](https://portfolio-intelligence.satoshinara.chatgpt.site) with owner-only access. This repository contains a sanitized source snapshot in [`apps/sites-demo/`](../apps/sites-demo/) so the hosted product path can be inspected and tested without publishing account data or deployment credentials.
+Portfolio Intelligence Sites version 21 is active at [portfolio-intelligence.satoshinara.chatgpt.site](https://portfolio-intelligence.satoshinara.chatgpt.site) with owner-only access. This repository contains a sanitized source snapshot in [`apps/sites-demo/`](../apps/sites-demo/) so the hosted product path can be inspected and tested without publishing account data or deployment credentials.
 
 ## Validation
 
@@ -13,9 +13,9 @@ Portfolio Intelligence Sites version 19 is active at [portfolio-intelligence.sat
 | Optimized Sites/Vinext build and artifact validation | Pass |
 | JavaScript import, hashing, and rendered-preview tests | 9 passed |
 | ESLint | Pass |
-| Python ingestion, policy, coordinator, and LangGraph tests | 7 passed |
+| Python ingestion, policy, coordinator, LangGraph, and TradingAgents adapter tests | 9 passed |
 | TypeScript and responsive browser verification | Pass |
-| Gemma trusted-web invocation against the NSE allowlist | Pass; 2 citations returned |
+| Gemma trusted-web invocation for the Timex/Coforge quarterly comparison | Pass; 8 citations returned from official issuer domains |
 | Public secret and owner-data scan | Pass for the sanitized snapshot |
 
 ## Implemented demo path
@@ -29,6 +29,8 @@ Portfolio Intelligence Sites version 19 is active at [portfolio-intelligence.sat
 - Bounded in-session chat context using the latest eight messages and the authenticated account snapshot.
 - Full dark research workspace plus compact chat access on every other product surface.
 - Portfolio, allowlisted live-web, and linked TradingAgents modes with KPI cards, deterministic tables/charts, and source cards.
+- Live Research now requires a trusted-web invocation, resolves relative periods from the runtime date, and fails visibly when no allowlisted citation is returned.
+- TradingAgents runtime `0.3.1` parses the upstream rendered rating, executive summary, thesis, trader action, and trader reasoning instead of expecting an object that the pinned library does not return.
 - First-login exact wealth-manager sender prompt and a Gmail read-only consent/import contract.
 - Private R2 staging for matching PDF and spreadsheet attachments with review-before-use status.
 - Optional private LLM endpoint and process-isolated TradingAgents/LangGraph runtime adapters, with deterministic fail-closed fallback.
@@ -40,7 +42,7 @@ The public snapshot uses invented fixtures and excludes owner holdings, quantiti
 
 ## Inactive integrations and remaining gates
 
-- Sites version 19 was privately redeployed with protected environment revision 6 after the
+- Sites version 21 was privately redeployed with protected environment revision 6 after the
   protected chat credential was revalidated. Portfolio chat
   uses the approved billed `google/gemma-4-26b-a4b-it` OpenRouter route. The free Gemma route
   returned provider `429` responses during the 31 August preflight, while the approved standard
