@@ -74,6 +74,13 @@ export type DashboardData = {
   evidence: Evidence[];
   documents: EvidenceDocument[];
   valueHistory: Array<{ label: string; value: number }>;
+  benchmarkHistory: Array<{
+    id: "nifty50" | "sensex";
+    label: string;
+    sourceLabel: string;
+    sourceUri: string;
+    points: Array<{ label: string; value: number }>;
+  }>;
   asOf: string;
   sourceMode: "manual" | "connected" | "demo";
   connections: BrokerConnection[];
@@ -159,9 +166,55 @@ export type ChatResponse = {
   intent: string;
   status: "grounded" | "restricted";
   evidence: Evidence[];
+  citations: ChatCitation[];
+  presentation: ChatPresentation;
   asOf: string;
   engine: "llm" | "deterministic" | "deterministic-fallback";
   model?: string;
+  researchMode: "portfolio" | "trusted-web";
+  fallbackReason?: string;
+};
+
+export type ChatCitation = {
+  title: string;
+  url: string;
+  domain: string;
+  sourceType: "portfolio" | "web";
+};
+
+export type ChatPresentation = {
+  title: string;
+  kpis: Array<{
+    label: string;
+    value: string;
+    detail: string;
+    tone: "positive" | "negative" | "neutral";
+  }>;
+  table?: {
+    title: string;
+    columns: string[];
+    rows: string[][];
+  };
+  chart?: {
+    type: "bar" | "line";
+    title: string;
+    unit: "percent" | "currency" | "index";
+    categories: string[];
+    series: Array<{ name: string; values: Array<number | null> }>;
+  };
+  note?: string;
+};
+
+export type EmailImportStatus = {
+  promptStatus: "pending" | "saved" | "dismissed";
+  wealthManagerEmail: string | null;
+  consentedAt: string | null;
+  googleConfigured: boolean;
+  mailboxStatus: "not_connected" | "connected" | "expired" | "action_required";
+  lastSyncedAt: string | null;
+  importedCount: number;
+  pendingReviewCount: number;
+  detail: string;
 };
 
 export type AgentPolicy = {

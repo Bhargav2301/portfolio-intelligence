@@ -195,3 +195,62 @@ export const evidenceDocuments = sqliteTable("evidence_documents", {
   uniqueIndex("evidence_documents_owner_hash_idx").on(table.ownerEmail, table.sourceHash),
   index("evidence_documents_owner_portfolio_idx").on(table.ownerEmail, table.portfolioId),
 ]);
+
+export const portfolioValueSnapshots = sqliteTable("portfolio_value_snapshots", {
+  id: text("id").primaryKey(),
+  portfolioId: text("portfolio_id").notNull().references(() => portfolios.id),
+  ownerEmail: text("owner_email").notNull(),
+  observedAt: text("observed_at").notNull(),
+  totalValue: real("total_value").notNull(),
+  totalCost: real("total_cost").notNull(),
+  sourceMode: text("source_mode").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("portfolio_value_snapshots_owner_observed_idx").on(table.ownerEmail, table.portfolioId, table.observedAt),
+  index("portfolio_value_snapshots_owner_time_idx").on(table.ownerEmail, table.portfolioId, table.observedAt),
+]);
+
+export const emailImportPreferences = sqliteTable("email_import_preferences", {
+  ownerEmail: text("owner_email").primaryKey(),
+  wealthManagerEmail: text("wealth_manager_email"),
+  promptStatus: text("prompt_status").notNull().default("pending"),
+  consentedAt: text("consented_at"),
+  lastSyncedAt: text("last_synced_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const mailboxConnections = sqliteTable("mailbox_connections", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull(),
+  accessTokenCiphertext: text("access_token_ciphertext").notNull(),
+  accessTokenIv: text("access_token_iv").notNull(),
+  refreshTokenCiphertext: text("refresh_token_ciphertext"),
+  refreshTokenIv: text("refresh_token_iv"),
+  tokenExpiresAt: text("token_expires_at"),
+  grantedScope: text("granted_scope").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("mailbox_connections_owner_provider_idx").on(table.ownerEmail, table.provider)]);
+
+export const emailImportItems = sqliteTable("email_import_items", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  portfolioId: text("portfolio_id").references(() => portfolios.id),
+  messageId: text("message_id").notNull(),
+  attachmentId: text("attachment_id").notNull(),
+  senderEmail: text("sender_email").notNull(),
+  subject: text("subject").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sourceHash: text("source_hash").notNull(),
+  storageKey: text("storage_key").notNull(),
+  messageAt: text("message_at"),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("email_import_items_owner_attachment_idx").on(table.ownerEmail, table.messageId, table.attachmentId),
+  index("email_import_items_owner_status_idx").on(table.ownerEmail, table.status),
+]);

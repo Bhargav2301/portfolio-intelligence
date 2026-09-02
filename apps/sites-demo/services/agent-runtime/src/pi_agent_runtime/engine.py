@@ -86,7 +86,10 @@ class TradingAgentsEngine:
                 )
 
         config = dict(DEFAULT_CONFIG)
-        config.update(self._environment_config(request))
+        environment_config, configuration_events = self._environment_config(request)
+        config.update(environment_config)
+        for event in configuration_events:
+            report("configuration", event, holding.symbol)
         report(
             "analysts",
             "Market, social, news, and fundamentals review started",
@@ -110,7 +113,9 @@ class TradingAgentsEngine:
         )
         return self._to_result(holding, final_state or {}, decision)
 
-    def _environment_config(self, request: AnalysisRunRequest) -> dict[str, Any]:
+    def _environment_config(
+        self, request: AnalysisRunRequest
+    ) -> tuple[dict[str, Any], list[str]]:
         result_dir = Path(
             os.getenv("TRADINGAGENTS_RESULTS_DIR", "/tmp/pi-tradingagents")
         )
@@ -126,13 +131,36 @@ class TradingAgentsEngine:
             "TA_DEEP_THINK_LLM": "deep_think_llm",
             "TA_QUICK_THINK_LLM": "quick_think_llm",
             "TA_BACKEND_URL": "backend_url",
+            "TA_MAX_TOKENS": "max_tokens",
         }
         for environment_name, key in mapping.items():
             if value := os.getenv(environment_name):
+                config[key] = int(value) if key == "max_tokens" else value
+        upstream_mapping = {
+            "TRADINGAGENTS_LLM_PROVIDER": "llm_provider",
+            "TRADINGAGENTS_DEEP_THINK_LLM": "deep_think_llm",
+            "TRADINGAGENTS_QUICK_THINK_LLM": "quick_think_llm",
+            "TRADINGAGENTS_LLM_BACKEND_URL": "backend_url",
+        }
+        for environment_name, key in upstream_mapping.items():
+            if key not in config and (value := os.getenv(environment_name)):
                 config[key] = value
         if raw := os.getenv("TA_CONFIG_JSON"):
             config.update(json.loads(raw))
-        return config
+        corrections: list[str] = []
+        model_aliases = {
+            "z-ai/glm-5.3-flas": "z-ai/glm-5.3-flash",
+        }
+        for key in ("deep_think_llm", "quick_think_llm"):
+            model = str(config.get(key, "")).strip()
+            if model in model_aliases:
+                config[key] = model_aliases[model]
+                corrections.append(
+                    f"Corrected known OpenRouter model alias for {key.replace('_', ' ')}"
+                )
+            elif not model:
+                raise RuntimeError(f"{key} is not configured")
+        return config, corrections
 
     @staticmethod
     def _text(value: Any, fallback: str) -> str:

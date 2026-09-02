@@ -20,11 +20,19 @@ declare global {
     fetch(request: Request): Promise<Response>;
   }
 
+  interface R2Bucket {
+    put(key: string, value: Uint8Array | ArrayBuffer | string, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
+    delete(keys: string | string[]): Promise<void>;
+  }
+
   interface PIConnectorEnv {
     UPSTOX_CLIENT_ID?: string;
     UPSTOX_CLIENT_SECRET?: string;
     UPSTOX_REDIRECT_URI?: string;
     CONNECTOR_ENCRYPTION_KEY?: string;
+    GOOGLE_CLIENT_ID?: string;
+    GOOGLE_CLIENT_SECRET?: string;
+    GOOGLE_REDIRECT_URI?: string;
     TRADING_AGENTS_API_URL?: string;
     TRADING_AGENTS_API_TOKEN?: string;
     PORTFOLIO_LLM_API_URL?: string;
@@ -35,6 +43,7 @@ declare global {
   }
 
   var __PI_DB: D1Database | undefined;
+  var __PI_DOCUMENTS: R2Bucket | undefined;
   var __PI_ENV: PIConnectorEnv | undefined;
 }
 

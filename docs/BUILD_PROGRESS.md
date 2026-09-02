@@ -8,12 +8,12 @@ This file is updated with the README as implementation changes.
 
 ### Hosted Sites demo checkpoint
 
-- Hosted Sites version 18 is active with owner-only access; the public repository contains a sanitized source snapshot at `apps/sites-demo/`.
-- The responsive Sites UI includes collapsible navigation, portfolio setup, native CSV/TSV/XLS/XLSX/JSON selection, consolidated workbook flattening, PDF metadata plus SHA-256 registration, deterministic analytics, scenarios, evidence views, account-data deletion, and an in-session conversational copilot.
+- Hosted Sites version 19 is the current owner-only release; the public repository contains a sanitized source snapshot at `apps/sites-demo/`.
+- The responsive Sites UI includes a dark research workspace, three-mode portfolio/live-web/agent chat, structured KPI cards/tables/charts, collapsible navigation, portfolio setup, native CSV/TSV/XLS/XLSX/JSON selection, consolidated workbook flattening, private mailbox staging, deterministic analytics, scenarios, evidence views, and account-data deletion.
 - The public normalizer uses runtime mappings or review-only derived symbols; customer-specific ticker aliases and private portfolio statistics are not compiled into the repository.
-- Local validation passes the optimized Sites build, 9 JavaScript tests, ESLint, and 6 Python ingestion/policy/LangGraph tests.
-- Durable server-side chat memory, raw private document storage, and Upstox OAuth remain activation or production-hardening work.
-- No model, broker, or runtime secret is committed. Owner-only Sites version 18 was privately redeployed with protected environment revision 6, the revalidated approved billed `google/gemma-4-26b-a4b-it` chat route, and the authenticated external TradingAgents/LangGraph runtime. Render health and shared-token authentication probes passed.
+- Local validation passes TypeScript, ESLint, the optimized Sites build, 9 JavaScript tests, and 7 Python ingestion/policy/LangGraph tests.
+- Durable cross-device chat memory, Google OAuth production verification, licensed benchmark/history feeds, and Upstox activation remain production-hardening work.
+- No model, OAuth, broker, or runtime secret is committed. Owner-only Sites version 19 retains protected environment revision 6, the approved billed `google/gemma-4-26b-a4b-it` chat route, and the authenticated external TradingAgents/LangGraph runtime. Trusted-web search was live-verified against the NSE allowlist.
 
 ### Validation baseline
 
@@ -52,6 +52,10 @@ This file is updated with the README as implementation changes.
 - TradingAgents-derived analyst, bull/bear, and risk-panel architecture with one-round caps.
 - Typed rebalance-review/no-action proposals with execution structurally disabled.
 - Live dashboard holdings, monitoring alerts, proposal status, and evidence links.
+- Structured research copilot with account-only, trusted-web, and linked Agent Desk modes.
+- OpenRouter server-side web search restricted to regulator, exchange, fund-industry, and Reuters domains.
+- Exact-sender Gmail consent flow, encrypted mailbox tokens, private R2 attachment staging, and review-before-use records.
+- Per-symbol TradingAgents error isolation so missing small-cap provider coverage records an explicit abstention and does not fail the portfolio run.
 - Secret generation, setup guide, CI, and repository-policy checks.
 - Six requirements documents included without modification.
 - Cognito authorization-code/PKCE BFF with opaque Redis sessions, origin/CSRF enforcement, token
@@ -91,14 +95,15 @@ This file is updated with the README as implementation changes.
   pending.
 - Agent evidence: immutable evidence storage, cutoff validation, internal ledger/monitor/rule
   evidence, and numeric citations are active; licensed market/news provider workers are pending.
-- Dashboard: current ledger metrics, holdings, monitors, upload, and bounded chat are active;
-  citation display is active, while historical chart and scenario-comparison screens are pending.
+- Dashboard: current ledger metrics, holdings, monitors, upload, structured chat, citations, and
+  tracked forward-only portfolio snapshots are active; licensed benchmark and complete-market
+  history plus scenario comparison remain pending.
 
 ### Not implemented yet
 
 - Cloud-account deployment and Cognito/passkey staging qualification.
 - Provider-specific parsing beyond the deliberately selected generic R1 CSV contract.
-- Licensed historical price/news ingestion workers, benchmark/active return, contribution and
+- Licensed historical price/news ingestion workers, complete-market/benchmark active return, contribution and
   attribution, advanced corporate actions, and market-state classification.
 - Licensed point-in-time research connectors for the adapted TradingAgents subgraph.
 - Scenario comparison UI and cost-model qualification.

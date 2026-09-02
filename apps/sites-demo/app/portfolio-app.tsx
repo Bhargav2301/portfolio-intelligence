@@ -2,9 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type {
-  ChatResponse,
   DashboardData,
-  Evidence,
   HoldingInput,
   HoldingLotInput,
   NormalizedPortfolioImport,
@@ -30,10 +28,11 @@ import type {
   PortfolioWorkbook,
 } from "../lib/portfolio-ingestion.js";
 import { AgentDesk } from "./agent-desk";
+import { EmailImportPrompt, MailboxConnectionCard } from "./email-import";
+import { ResearchCopilot } from "./research-copilot";
 
 type View = "overview" | "accounts" | "agents" | "research" | "activity" | "scenario" | "settings";
 type User = { displayName: string; email: string | null };
-type ChatMessage = { role: "assistant" | "user"; text: string; evidence?: Evidence[]; citedSymbols?: string[]; restricted?: boolean; engine?: ChatResponse["engine"]; model?: string };
 
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -105,7 +104,7 @@ export default function PortfolioApp({ user }: { user: User }) {
 
   if (loading) return <LoadingState />;
   if (!data) return <ErrorState message={error || "Portfolio data is unavailable"} />;
-  if (data.status === "needs_setup") return <Onboarding data={data} user={user} onData={setData} />;
+  if (data.status === "needs_setup") return <><Onboarding data={data} user={user} onData={setData} /><EmailImportPrompt /></>;
 
   const dashboard = data;
 
@@ -126,7 +125,7 @@ export default function PortfolioApp({ user }: { user: User }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className={view === "research" ? "app-shell chat-focused" : "app-shell"}>
       <aside className={menuOpen ? "sidebar open" : "sidebar"} id="primary-menu">
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>
@@ -159,7 +158,7 @@ export default function PortfolioApp({ user }: { user: User }) {
       </aside>
       {menuOpen && <button className="menu-backdrop" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
 
-      <main className="workspace">
+      <main className={view === "research" ? "workspace workspace-chat" : "workspace"}>
         <header className="topbar">
           <div className="topbar-title">
             <button className="menu-toggle" onClick={() => setMenuOpen((current) => !current)} aria-expanded={menuOpen} aria-controls="primary-menu" aria-label="Open navigation"><i /><i /><i /></button>
@@ -179,13 +178,14 @@ export default function PortfolioApp({ user }: { user: User }) {
         {view === "overview" && <Overview data={dashboard} onViewChange={setView} />}
         {view === "accounts" && <AccountsView data={dashboard} onSync={syncConnectedAccount} />}
         {view === "agents" && <AgentDesk data={dashboard} onRunChange={setAgentRunId} />}
-        {view === "research" && <ResearchView data={dashboard} onData={setData} onError={setError} />}
+        {view === "research" && <ResearchWorkspace data={dashboard} agentRunId={agentRunId} onData={setData} onError={setError} />}
         {view === "activity" && <ActivityView data={dashboard} onData={setData} onError={setError} />}
         {view === "scenario" && <ScenarioView data={dashboard} />}
         {view === "settings" && <SettingsView data={dashboard} user={user} onData={setData} onError={setError} />}
       </main>
 
-      <ResearchCopilot data={dashboard} agentRunId={agentRunId} />
+      {view !== "research" && <ResearchCopilot data={dashboard} agentRunId={agentRunId} />}
+      <EmailImportPrompt />
       {transactionOpen && (
         <TransactionDialog
           data={dashboard}
@@ -599,6 +599,7 @@ function AccountsView({ data, onSync }: { data: DashboardData; onSync: () => Pro
             </div>
           </article>
         ))}
+        <MailboxConnectionCard />
       </section>
       <section className="sync-explainer"><strong>What “live” means in V1</strong><p>Connected holdings refresh after authorization, shortly after the workspace opens, every five minutes while it remains visible, and whenever you choose Refresh. The tracker shows the last successful sync and keeps the previous snapshot if the broker is unavailable. Manual holdings use the price you entered until you update it.</p></section>
     </div>
@@ -643,6 +644,8 @@ function Overview({ data, onViewChange }: { data: DashboardData; onViewChange: (
         </article>
       </section>
 
+      <MarketPortfolioPanel data={data} />
+
       <section className="panel holdings-panel">
         <div className="panel-heading">
           <div><p className="eyebrow">Current positions</p><h2>Holdings</h2></div>
@@ -651,6 +654,26 @@ function Overview({ data, onViewChange }: { data: DashboardData; onViewChange: (
         <HoldingsTable positions={data.positions} />
       </section>
     </div>
+  );
+}
+
+function MarketPortfolioPanel({ data }: { data: DashboardData }) {
+  const portfolioChange = data.valueHistory.length > 1
+    ? ((data.valueHistory.at(-1)!.value / data.valueHistory[0].value) - 1) * 100
+    : null;
+  return (
+    <section className="panel market-portfolio-panel">
+      <div className="panel-heading">
+        <div><p className="eyebrow">Market & portfolio</p><h2>Tracked KPIs in one place</h2></div>
+        <span className="audit-chip">Source-aware</span>
+      </div>
+      <div className="market-kpi-grid">
+        <article><span>Portfolio tracked return</span><strong>{portfolioChange === null ? "Building history" : `${portfolioChange >= 0 ? "+" : ""}${portfolioChange.toFixed(2)}%`}</strong><small>{data.valueHistory.length} authenticated snapshot{data.valueHistory.length === 1 ? "" : "s"}</small></article>
+        <article><span>NIFTY 50</span><strong>{data.benchmarkHistory.some((item) => item.id === "nifty50") ? "Connected" : "Official feed needed"}</strong><small><a href="https://www.nseindia.com/reports-indices-historical-index-data" target="_blank" rel="noreferrer">NSE historical index data ↗</a></small></article>
+        <article><span>SENSEX</span><strong>{data.benchmarkHistory.some((item) => item.id === "sensex") ? "Connected" : "Official feed needed"}</strong><small><a href="https://www.bseindia.com/indices/IndexArchiveData.html" target="_blank" rel="noreferrer">BSE index archive ↗</a></small></article>
+      </div>
+      <div className="market-coverage-note"><strong>Coverage boundary</strong><p>All portfolio holdings are shown below. “All stocks in the market” requires a licensed exchange feed; Portfolio Intelligence will not fabricate or silently scrape a complete market series. Trusted-web research is available in the Research workspace while structured benchmark history remains source-gated.</p></div>
+    </section>
   );
 }
 
@@ -738,6 +761,27 @@ function HoldingsTable({ positions }: { positions: Position[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ResearchWorkspace({ data, agentRunId, onData, onError }: {
+  data: DashboardData;
+  agentRunId: string | null;
+  onData: (data: DashboardData) => void;
+  onError: (error: string) => void;
+}) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  return (
+    <div className="research-workspace">
+      <ResearchCopilot data={data} agentRunId={agentRunId} embedded />
+      <section className={libraryOpen ? "research-library open" : "research-library"}>
+        <button className="research-library-toggle" onClick={() => setLibraryOpen((current) => !current)} aria-expanded={libraryOpen}>
+          <span><strong>Evidence & statement inbox</strong><small>{data.evidence.length} verified sources · {data.documents.length} registered documents</small></span>
+          <b>{libraryOpen ? "Close" : "Open library"}</b>
+        </button>
+        {libraryOpen && <ResearchView data={data} onData={onData} onError={onError} />}
+      </section>
     </div>
   );
 }
@@ -960,67 +1004,6 @@ function SettingsView({ data, user, onData, onError }: {
         </div>
       )}
     </div>
-  );
-}
-
-function ResearchCopilot({ data, agentRunId }: { data: DashboardData; agentRunId: string | null }) {
-  const [prompt, setPrompt] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"portfolio" | "agent">("portfolio");
-  const [collapsed, setCollapsed] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", text: `I can explain ${data.portfolio.name} from this account's holdings, ledger, and attached evidence. Try asking about performance, concentration risk, sources, or scenarios.` },
-  ]);
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 1000px)");
-    const update = () => setCollapsed(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-  async function ask(value: string) {
-    const clean = value.trim();
-    if (!clean || busy) return;
-    setMessages((current) => [...current, { role: "user", text: clean }]);
-    setPrompt("");
-    setBusy(true);
-    try {
-      const response = await fetch(mode === "agent" ? "/api/agents/chat" : "/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(mode === "agent" ? { prompt: clean, runId: agentRunId } : {
-          prompt: clean,
-          history: messages.slice(-8).map((message) => ({ role: message.role, content: message.text })),
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Unable to answer");
-      const answer = payload as ChatResponse & { cited_symbols?: string[] };
-      setMessages((current) => [...current, { role: "assistant", text: answer.answer, evidence: answer.evidence, citedSymbols: answer.cited_symbols, restricted: answer.status === "restricted", engine: answer.engine, model: answer.model }]);
-    } catch (reason) {
-      setMessages((current) => [...current, { role: "assistant", text: reason instanceof Error ? reason.message : "Unable to answer" }]);
-    } finally { setBusy(false); }
-  }
-  function submit(event: FormEvent) { event.preventDefault(); void ask(prompt); }
-  return (
-    <aside className={collapsed ? "copilot collapsed" : "copilot"}>
-      <div className="copilot-heading"><div><span className="copilot-mark">PI</span><div><strong>Research copilot</strong><small><i /> Account-context · evidence-gated</small></div></div><button className="copilot-toggle" onClick={() => setCollapsed((current) => !current)} aria-expanded={!collapsed} aria-label={collapsed ? "Open research copilot" : "Collapse research copilot"}>{collapsed ? "↑" : "↓"}</button></div>
-      <div className="copilot-modes"><button className={mode === "portfolio" ? "active" : ""} onClick={() => setMode("portfolio")}>Portfolio</button><button className={mode === "agent" ? "active" : ""} onClick={() => setMode("agent")}>Agent run</button></div>
-      <div className="chat-stream">
-        {messages.map((message, index) => (
-          <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
-            {message.role === "assistant" && <span className="chat-avatar">PI</span>}
-            <div><p>{message.text}</p>{message.engine && <span className="engine-chip">{message.engine === "llm" ? `LLM${message.model ? ` · ${message.model}` : ""}` : message.engine === "deterministic-fallback" ? "LLM unavailable · deterministic fallback" : "Deterministic policy"}</span>}{message.restricted && <span className="restricted-chip">Policy restriction applied</span>}{message.evidence && message.evidence.length > 0 && <div className="chat-sources">{message.evidence.slice(0, 2).map((item) => <span key={item.id}>{item.symbol} · {item.title}</span>)}</div>}{message.citedSymbols && message.citedSymbols.length > 0 && <div className="chat-sources">{message.citedSymbols.map((symbol) => <span key={symbol}>{symbol} · completed agent artifact</span>)}</div>}</div>
-          </div>
-        ))}
-        {busy && <div className="chat-message assistant"><span className="chat-avatar">PI</span><div className="thinking"><i /><i /><i /></div></div>}
-      </div>
-      <div className="suggestion-list">
-        {(mode === "agent" ? ["Summarize the latest run", "Why this rating?", "Which policy checks applied?"] : ["What drives my returns?", "Show concentration risk", "What sources are attached?"]).map((suggestion) => <button key={suggestion} onClick={() => void ask(suggestion)}>{suggestion}</button>)}
-      </div>
-      <form className="chat-input" onSubmit={submit}><input value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === "agent" ? "Ask about a completed run…" : "Ask about this portfolio…"} aria-label="Ask the research copilot" /><button disabled={!prompt.trim() || busy || (mode === "agent" && !agentRunId)} aria-label="Send question">↑</button></form>
-      <p className="copilot-disclaimer">{mode === "agent" && !agentRunId ? "Start an Agent desk run to enable run Q&A." : `Research intelligence · ${data.sourceMode} holdings · not investment advice.`}</p>
-    </aside>
   );
 }
 

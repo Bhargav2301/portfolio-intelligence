@@ -13,6 +13,7 @@ async function runtimeFetch(path: string, ownerEmail: string, init: RequestInit 
   if (!config) throw new Error("AGENT_RUNTIME_NOT_CONFIGURED");
   const response = await fetch(`${config.url}${path}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(init.method === "POST" ? 25_000 : 12_000),
     headers: {
       authorization: `Bearer ${config.token}`,
       "x-pi-owner-email": ownerEmail,

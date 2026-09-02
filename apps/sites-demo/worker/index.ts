@@ -5,10 +5,14 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  DOCUMENTS: R2Bucket;
   UPSTOX_CLIENT_ID?: string;
   UPSTOX_CLIENT_SECRET?: string;
   UPSTOX_REDIRECT_URI?: string;
   CONNECTOR_ENCRYPTION_KEY?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
   TRADING_AGENTS_API_URL?: string;
   TRADING_AGENTS_API_TOKEN?: string;
   PORTFOLIO_LLM_API_URL?: string;
@@ -39,11 +43,15 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     globalThis.__PI_DB = env.DB;
+    globalThis.__PI_DOCUMENTS = env.DOCUMENTS;
     globalThis.__PI_ENV = {
       UPSTOX_CLIENT_ID: env.UPSTOX_CLIENT_ID,
       UPSTOX_CLIENT_SECRET: env.UPSTOX_CLIENT_SECRET,
       UPSTOX_REDIRECT_URI: env.UPSTOX_REDIRECT_URI,
       CONNECTOR_ENCRYPTION_KEY: env.CONNECTOR_ENCRYPTION_KEY,
+      GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
+      GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI,
       TRADING_AGENTS_API_URL: env.TRADING_AGENTS_API_URL,
       TRADING_AGENTS_API_TOKEN: env.TRADING_AGENTS_API_TOKEN,
       PORTFOLIO_LLM_API_URL: env.PORTFOLIO_LLM_API_URL,

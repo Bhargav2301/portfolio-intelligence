@@ -27,12 +27,15 @@ It does not place orders. The AI cannot modify holdings, use protected cash, wea
 | TWR, MWR/XIRR, volatility, downside deviation, drawdown | Implemented; full qualification pending |
 | Protected-reserve market-stress scenarios | Implemented; always non-executable |
 | LangGraph portfolio-analysis workflow | Implemented bounded graph |
-| AI provider connection | Configured through secrets; requires a key |
+| AI provider connection | Configured through protected secrets; approved Gemma route active in the owner Site |
 | PostgreSQL, Redis, and private quarantine object storage | Included in local Docker stack |
 | Malware scanner | Implemented; optional local Docker profile, mandatory in production |
 | Human-confirmed ledger publication | Implemented append-only API and certified-CSV workbench |
 | Holdings, cash, P/L, and concentration monitors | Implemented deterministic foundation |
-| TradingAgents research architecture | Adapted from pinned commit with analyst/debate/risk stages and categorical demo signal |
+| TradingAgents research architecture | Adapted from pinned commit with analyst/debate/risk stages, cross-workspace access, and per-symbol abstention |
+| Structured research copilot | Implemented with portfolio/live-web/agent modes, KPI cards, tables, charts, and citations |
+| Trusted web research | OpenRouter server-side search limited to an exchange/regulator/Reuters allowlist |
+| Wealth-manager mailbox intake | Exact-sender consent, Gmail read-only OAuth, private R2 staging, and mandatory review implemented; OAuth activation pending |
 | Point-in-time evidence and numeric citations | Implemented R3 checkpoint; licensed connectors pending |
 | Durable agent run provenance and checkpoints | Implemented; staging failover qualification pending |
 | Production authentication and registered-adviser mode | Not enabled |
@@ -49,7 +52,7 @@ For the shortest file-to-chat showcase, follow the [TradingAgents demo runbook](
 
 A responsive, owner-isolated Sites demo is active at [Portfolio Intelligence](https://portfolio-intelligence.satoshinara.chatgpt.site). The public repository now carries a sanitized, testable source snapshot under [`apps/sites-demo/`](apps/sites-demo/) and a [current status report](docs/SITES_DEMO_STATUS.md).
 
-The snapshot keeps the data-to-agent-to-chat wiring, spreadsheet inference, consolidated-lot normalization, PDF metadata hashing, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, runtime credentials, the live Sites project identifier, and generated build caches. The owner-only hosted deployment now uses the approved OpenRouter Gemma chat route and is connected to the authenticated external TradingAgents/LangGraph runtime; production-hardening gates remain.
+The snapshot keeps the data-to-agent-to-chat wiring, structured research presentation, trusted-web tool policy, spreadsheet inference, consolidated-lot normalization, private mailbox-staging contract, account-scoped analytics, responsive navigation, and deletion controls. It excludes owner portfolio data, source filenames and aggregates, customer-specific ticker aliases, OAuth credentials, runtime credentials, the live Sites project identifier, and generated build caches. The owner-only hosted deployment uses the approved OpenRouter Gemma chat route and the authenticated external TradingAgents/LangGraph runtime; production-hardening gates remain.
 
 ## Who it is for
 

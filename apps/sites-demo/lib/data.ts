@@ -1,6 +1,7 @@
 import type {
   BrokerConnection,
   DashboardData,
+  EmailImportStatus,
   Evidence,
   EvidenceDocument,
   HoldingInput,
@@ -75,12 +76,28 @@ type RawInstrumentMapping = {
   status: "confirmed" | "unresolved" | "unavailable";
 };
 
+type RawMailboxConnection = {
+  id: string;
+  status: "connected" | "expired" | "action_required";
+  access_token_ciphertext: string;
+  access_token_iv: string;
+  refresh_token_ciphertext: string | null;
+  refresh_token_iv: string | null;
+  token_expires_at: string | null;
+  granted_scope: string;
+};
+
 const DEMO_EMAIL = "demo.user@portfolio.local";
 const EMPTY_AS_OF = "1970-01-01T00:00:00.000Z";
 
 function database() {
   if (!globalThis.__PI_DB) throw new Error("Portfolio database is unavailable");
   return globalThis.__PI_DB;
+}
+
+function documentStore() {
+  if (!globalThis.__PI_DOCUMENTS) throw new Error("DOCUMENT_STORAGE_NOT_CONFIGURED");
+  return globalThis.__PI_DOCUMENTS;
 }
 
 export function ownerFromRequest(request: Request) {
@@ -291,6 +308,64 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS evidence_documents_owner_portfolio_idx
       ON evidence_documents(owner_email, portfolio_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
+      id TEXT PRIMARY KEY,
+      portfolio_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      total_value REAL NOT NULL,
+      total_cost REAL NOT NULL,
+      source_mode TEXT NOT NULL CHECK(source_mode IN ('manual','connected','demo')),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      UNIQUE(owner_email, portfolio_id, observed_at)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS portfolio_value_snapshots_owner_time_idx
+      ON portfolio_value_snapshots(owner_email, portfolio_id, observed_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS email_import_preferences (
+      owner_email TEXT PRIMARY KEY,
+      wealth_manager_email TEXT,
+      prompt_status TEXT NOT NULL CHECK(prompt_status IN ('pending','saved','dismissed')),
+      consented_at TEXT,
+      last_synced_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS mailbox_connections (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      provider TEXT NOT NULL CHECK(provider IN ('google_gmail')),
+      status TEXT NOT NULL CHECK(status IN ('connected','expired','action_required')),
+      access_token_ciphertext TEXT NOT NULL,
+      access_token_iv TEXT NOT NULL,
+      refresh_token_ciphertext TEXT,
+      refresh_token_iv TEXT,
+      token_expires_at TEXT,
+      granted_scope TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(owner_email, provider)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS email_import_items (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      portfolio_id TEXT,
+      message_id TEXT NOT NULL,
+      attachment_id TEXT NOT NULL,
+      sender_email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      message_at TEXT,
+      status TEXT NOT NULL CHECK(status IN ('stored','needs_review','reviewed','rejected')),
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(portfolio_id) REFERENCES portfolios(id),
+      UNIQUE(owner_email, message_id, attachment_id)
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS email_import_items_owner_status_idx
+      ON email_import_items(owner_email, status)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS account_data_resets (
       owner_email TEXT PRIMARY KEY,
       reset_version TEXT NOT NULL,
@@ -308,7 +383,7 @@ function marketDataSymbol(exchange: string, symbol: string, explicit?: string | 
     return null;
   }
   if (exchange === "NSE") return `${symbol}.NS`;
-  if (exchange === "BSE") return null;
+  if (exchange === "BSE") return `${symbol}.BO`;
   if (exchange === "NASDAQ" || exchange === "NYSE") return symbol;
   return null;
 }
@@ -438,6 +513,307 @@ export async function completeUpstoxConnection(code: string, state: string) {
 
   await syncUpstoxHoldings(stored.owner_email);
   return stored.owner_email;
+}
+
+function requireGoogleConfig() {
+  const config = connectorConfig();
+  if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET || !config.GOOGLE_REDIRECT_URI || !config.CONNECTOR_ENCRYPTION_KEY) {
+    throw new Error("GOOGLE_CONNECTOR_NOT_CONFIGURED");
+  }
+  documentStore();
+  return {
+    clientId: config.GOOGLE_CLIENT_ID,
+    clientSecret: config.GOOGLE_CLIENT_SECRET,
+    redirectUri: config.GOOGLE_REDIRECT_URI,
+  };
+}
+
+function cleanEmail(value: string) {
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(email)) {
+    throw new Error("Enter a valid wealth manager email address");
+  }
+  return email;
+}
+
+export async function getEmailImportStatus(ownerEmail: string): Promise<EmailImportStatus> {
+  await ensureSchema();
+  const [preference, connection, counts] = await Promise.all([
+    database().prepare(`SELECT wealth_manager_email, prompt_status, consented_at, last_synced_at
+      FROM email_import_preferences WHERE owner_email = ?`).bind(ownerEmail)
+      .first<{ wealth_manager_email: string | null; prompt_status: EmailImportStatus["promptStatus"]; consented_at: string | null; last_synced_at: string | null }>(),
+    database().prepare(`SELECT status FROM mailbox_connections WHERE owner_email = ? AND provider = 'google_gmail'`)
+      .bind(ownerEmail).first<{ status: EmailImportStatus["mailboxStatus"] }>(),
+    database().prepare(`SELECT COUNT(*) AS imported_count,
+        SUM(CASE WHEN status = 'needs_review' THEN 1 ELSE 0 END) AS pending_count
+      FROM email_import_items WHERE owner_email = ?`).bind(ownerEmail)
+      .first<{ imported_count: number; pending_count: number | null }>(),
+  ]);
+  const config = connectorConfig();
+  const googleConfigured = Boolean(
+    config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET && config.GOOGLE_REDIRECT_URI
+      && config.CONNECTOR_ENCRYPTION_KEY && globalThis.__PI_DOCUMENTS,
+  );
+  const mailboxStatus = connection?.status ?? "not_connected";
+  return {
+    promptStatus: preference?.prompt_status ?? "pending",
+    wealthManagerEmail: preference?.wealth_manager_email ?? null,
+    consentedAt: preference?.consented_at ?? null,
+    googleConfigured,
+    mailboxStatus,
+    lastSyncedAt: preference?.last_synced_at ?? null,
+    importedCount: Number(counts?.imported_count ?? 0),
+    pendingReviewCount: Number(counts?.pending_count ?? 0),
+    detail: !googleConfigured
+      ? "Google OAuth and private document storage must be configured before Gmail can be connected."
+      : mailboxStatus === "connected"
+        ? "Gmail is connected read-only. Only attachments from the saved sender are eligible for import."
+        : "Connect Gmail to import approved PDF and spreadsheet attachments from the saved sender.",
+  };
+}
+
+export async function saveEmailImportPreference(ownerEmail: string, wealthManagerEmail: string, consent: boolean) {
+  await ensureSchema();
+  if (!consent) throw new Error("Consent is required before saving an email import rule");
+  const email = cleanEmail(wealthManagerEmail);
+  const now = new Date().toISOString();
+  await database().prepare(`INSERT INTO email_import_preferences
+    (owner_email, wealth_manager_email, prompt_status, consented_at, last_synced_at, created_at, updated_at)
+    VALUES (?, ?, 'saved', ?, NULL, ?, ?)
+    ON CONFLICT(owner_email) DO UPDATE SET wealth_manager_email = excluded.wealth_manager_email,
+      prompt_status = 'saved', consented_at = excluded.consented_at, updated_at = excluded.updated_at`)
+    .bind(ownerEmail, email, now, now, now).run();
+  return getEmailImportStatus(ownerEmail);
+}
+
+export async function dismissEmailImportPrompt(ownerEmail: string) {
+  await ensureSchema();
+  const now = new Date().toISOString();
+  await database().prepare(`INSERT INTO email_import_preferences
+    (owner_email, wealth_manager_email, prompt_status, consented_at, last_synced_at, created_at, updated_at)
+    VALUES (?, NULL, 'dismissed', NULL, NULL, ?, ?)
+    ON CONFLICT(owner_email) DO UPDATE SET prompt_status = 'dismissed', updated_at = excluded.updated_at`)
+    .bind(ownerEmail, now, now).run();
+  return getEmailImportStatus(ownerEmail);
+}
+
+export async function startGoogleMailboxConnection(ownerEmail: string) {
+  await ensureSchema();
+  const preference = await getEmailImportStatus(ownerEmail);
+  if (!preference.wealthManagerEmail || !preference.consentedAt) throw new Error("WEALTH_MANAGER_EMAIL_REQUIRED");
+  const config = requireGoogleConfig();
+  const state = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const now = new Date();
+  await database().prepare(`INSERT INTO oauth_states
+    (state_hash, owner_email, provider, expires_at, created_at) VALUES (?, ?, 'google_gmail', ?, ?)`)
+    .bind(await sha256Base64Url(state), ownerEmail, new Date(now.getTime() + 10 * 60 * 1000).toISOString(), now.toISOString()).run();
+  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  url.searchParams.set("client_id", config.clientId);
+  url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("access_type", "offline");
+  url.searchParams.set("include_granted_scopes", "true");
+  url.searchParams.set("prompt", "consent");
+  url.searchParams.set("scope", "https://www.googleapis.com/auth/gmail.readonly");
+  url.searchParams.set("login_hint", ownerEmail);
+  url.searchParams.set("state", state);
+  return url.toString();
+}
+
+export async function completeGoogleMailboxConnection(code: string, state: string) {
+  await ensureSchema();
+  if (!code || !state) throw new Error("INVALID_OAUTH_CALLBACK");
+  const stateHash = await sha256Base64Url(state);
+  const stored = await database().prepare(`SELECT owner_email, expires_at FROM oauth_states
+    WHERE state_hash = ? AND provider = 'google_gmail'`).bind(stateHash)
+    .first<{ owner_email: string; expires_at: string }>();
+  if (!stored || Date.parse(stored.expires_at) <= Date.now()) throw new Error("INVALID_OAUTH_STATE");
+  await database().prepare("DELETE FROM oauth_states WHERE state_hash = ?").bind(stateHash).run();
+  const config = requireGoogleConfig();
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      redirect_uri: config.redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  const payload = await response.json() as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
+  if (!response.ok || !payload.access_token) throw new Error("GOOGLE_AUTHORIZATION_FAILED");
+  const access = await encryptToken(payload.access_token);
+  const refresh = payload.refresh_token ? await encryptToken(payload.refresh_token) : null;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000).toISOString();
+  await database().prepare(`INSERT INTO mailbox_connections
+    (id, owner_email, provider, status, access_token_ciphertext, access_token_iv,
+      refresh_token_ciphertext, refresh_token_iv, token_expires_at, granted_scope, created_at, updated_at)
+    VALUES (?, ?, 'google_gmail', 'connected', ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(owner_email, provider) DO UPDATE SET status = 'connected',
+      access_token_ciphertext = excluded.access_token_ciphertext,
+      access_token_iv = excluded.access_token_iv,
+      refresh_token_ciphertext = COALESCE(excluded.refresh_token_ciphertext, mailbox_connections.refresh_token_ciphertext),
+      refresh_token_iv = COALESCE(excluded.refresh_token_iv, mailbox_connections.refresh_token_iv),
+      token_expires_at = excluded.token_expires_at, granted_scope = excluded.granted_scope,
+      updated_at = excluded.updated_at`)
+    .bind(crypto.randomUUID(), stored.owner_email, access.ciphertext, access.iv,
+      refresh?.ciphertext ?? null, refresh?.iv ?? null, expiresAt,
+      payload.scope ?? "https://www.googleapis.com/auth/gmail.readonly", now.toISOString(), now.toISOString()).run();
+  return stored.owner_email;
+}
+
+async function googleAccessToken(ownerEmail: string) {
+  const connection = await database().prepare(`SELECT id, status, access_token_ciphertext, access_token_iv,
+      refresh_token_ciphertext, refresh_token_iv, token_expires_at, granted_scope
+    FROM mailbox_connections WHERE owner_email = ? AND provider = 'google_gmail'`)
+    .bind(ownerEmail).first<RawMailboxConnection>();
+  if (!connection) throw new Error("GOOGLE_MAILBOX_NOT_CONNECTED");
+  if (!connection.token_expires_at || Date.parse(connection.token_expires_at) > Date.now() + 60_000) {
+    return decryptToken(connection.access_token_ciphertext, connection.access_token_iv);
+  }
+  if (!connection.refresh_token_ciphertext || !connection.refresh_token_iv) {
+    await database().prepare("UPDATE mailbox_connections SET status = 'expired', updated_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), connection.id).run();
+    throw new Error("GOOGLE_MAILBOX_RECONNECT_REQUIRED");
+  }
+  const config = requireGoogleConfig();
+  const refreshToken = await decryptToken(connection.refresh_token_ciphertext, connection.refresh_token_iv);
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  const payload = await response.json() as { access_token?: string; expires_in?: number };
+  if (!response.ok || !payload.access_token) {
+    await database().prepare("UPDATE mailbox_connections SET status = 'expired', updated_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), connection.id).run();
+    throw new Error("GOOGLE_MAILBOX_RECONNECT_REQUIRED");
+  }
+  const access = await encryptToken(payload.access_token);
+  const expiresAt = new Date(Date.now() + Math.max(60, Number(payload.expires_in ?? 3600)) * 1000).toISOString();
+  await database().prepare(`UPDATE mailbox_connections SET status = 'connected',
+      access_token_ciphertext = ?, access_token_iv = ?, token_expires_at = ?, updated_at = ? WHERE id = ?`)
+    .bind(access.ciphertext, access.iv, expiresAt, new Date().toISOString(), connection.id).run();
+  return payload.access_token;
+}
+
+type GmailPart = {
+  partId?: string;
+  filename?: string;
+  mimeType?: string;
+  body?: { attachmentId?: string; data?: string; size?: number };
+  parts?: GmailPart[];
+};
+
+function gmailAttachmentParts(part: GmailPart): GmailPart[] {
+  return [part, ...(part.parts ?? []).flatMap(gmailAttachmentParts)]
+    .filter((item) => Boolean(item.filename && (item.body?.attachmentId || item.body?.data)));
+}
+
+function decodeGmailBytes(value: string) {
+  return base64UrlToBytes(value);
+}
+
+function allowedMailboxAttachment(filename: string, mimeType: string) {
+  const extension = filename.toLowerCase().split(".").pop() ?? "";
+  return ["pdf", "csv", "tsv", "xls", "xlsx"].includes(extension)
+    && ["application/pdf", "text/csv", "text/tab-separated-values", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/octet-stream"].includes(mimeType || "application/octet-stream");
+}
+
+export async function syncGoogleMailbox(ownerEmail: string) {
+  await ensureSchema();
+  const status = await getEmailImportStatus(ownerEmail);
+  if (!status.wealthManagerEmail || !status.consentedAt) throw new Error("WEALTH_MANAGER_EMAIL_REQUIRED");
+  const accessToken = await googleAccessToken(ownerEmail);
+  const query = `from:(${status.wealthManagerEmail}) has:attachment newer_than:18m (filename:pdf OR filename:csv OR filename:tsv OR filename:xls OR filename:xlsx)`;
+  const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+  listUrl.searchParams.set("q", query);
+  listUrl.searchParams.set("maxResults", "30");
+  const listResponse = await fetch(listUrl, { headers: { authorization: `Bearer ${accessToken}` } });
+  const listPayload = await listResponse.json() as { messages?: Array<{ id: string }> };
+  if (!listResponse.ok) throw new Error("GMAIL_SEARCH_FAILED");
+  const portfolio = await firstPortfolio(ownerEmail);
+  let imported = 0;
+  let skipped = 0;
+
+  for (const reference of listPayload.messages ?? []) {
+    const messageResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(reference.id)}?format=full`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const message = await messageResponse.json() as {
+      id?: string;
+      internalDate?: string;
+      payload?: GmailPart & { headers?: Array<{ name?: string; value?: string }> };
+    };
+    if (!messageResponse.ok || !message.id || !message.payload) { skipped += 1; continue; }
+    const headers = new Map((message.payload.headers ?? []).map((header) => [header.name?.toLowerCase() ?? "", header.value ?? ""]));
+    const subject = (headers.get("subject") || "Wealth manager attachment").slice(0, 300);
+    const messageAt = message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null;
+    for (const part of gmailAttachmentParts(message.payload)) {
+      const filename = (part.filename ?? "attachment").replace(/[\\/:*?"<>|]/g, "_").slice(0, 240);
+      const mimeType = part.mimeType || "application/octet-stream";
+      if (!allowedMailboxAttachment(filename, mimeType) || Number(part.body?.size ?? 0) > 20 * 1024 * 1024) { skipped += 1; continue; }
+      const attachmentId = part.body?.attachmentId ?? `inline-${part.partId ?? filename}`;
+      const existing = await database().prepare(`SELECT id FROM email_import_items
+        WHERE owner_email = ? AND message_id = ? AND attachment_id = ?`)
+        .bind(ownerEmail, message.id, attachmentId).first<{ id: string }>();
+      if (existing) { skipped += 1; continue; }
+      let encoded = part.body?.data;
+      if (!encoded && part.body?.attachmentId) {
+        const attachmentResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(part.body.attachmentId)}`, {
+          headers: { authorization: `Bearer ${accessToken}` },
+        });
+        const attachment = await attachmentResponse.json() as { data?: string; size?: number };
+        if (!attachmentResponse.ok || !attachment.data || Number(attachment.size ?? 0) > 20 * 1024 * 1024) { skipped += 1; continue; }
+        encoded = attachment.data;
+      }
+      if (!encoded) { skipped += 1; continue; }
+      const bytes = decodeGmailBytes(encoded);
+      const sourceHash = await sha256Hex(bytes);
+      const ownerHash = (await sha256Hex(ownerEmail)).slice(0, 24);
+      const storageKey = `gmail/${ownerHash}/${sourceHash}-${filename}`;
+      await documentStore().put(storageKey, bytes, { httpMetadata: { contentType: mimeType } });
+      const now = new Date().toISOString();
+      await database().prepare(`INSERT INTO email_import_items
+        (id, owner_email, portfolio_id, message_id, attachment_id, sender_email, subject,
+          filename, mime_type, source_hash, storage_key, message_at, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'needs_review', ?)`)
+        .bind(crypto.randomUUID(), ownerEmail, portfolio?.id ?? null, message.id, attachmentId,
+          status.wealthManagerEmail, subject, filename, mimeType, sourceHash, storageKey, messageAt, now).run();
+      const extension = filename.toLowerCase().split(".").pop() ?? "";
+      if (extension === "pdf") {
+        await database().prepare(`INSERT OR IGNORE INTO evidence_documents
+          (id, owner_email, portfolio_id, import_batch_id, source_filename, mime_type, source_hash,
+            symbol, title, publisher, published_at, storage_key, status, created_at)
+          VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, ?, ?, ?, 'uploaded', ?)`)
+          .bind(crypto.randomUUID(), ownerEmail, portfolio?.id ?? null, filename, mimeType, sourceHash,
+            subject, status.wealthManagerEmail, messageAt, storageKey, now).run();
+      } else {
+        await database().prepare(`INSERT OR IGNORE INTO import_batches
+          (id, owner_email, portfolio_id, source_kind, source_filename, source_hash, status,
+            row_count, valid_row_count, warning_count, error_count, raw_retained, created_at, committed_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'staged', 0, 0, 0, 0, 1, ?, NULL)`)
+          .bind(crypto.randomUUID(), ownerEmail, portfolio?.id ?? null, extension === "csv" || extension === "tsv" ? "csv" : "xls", filename, sourceHash, now).run();
+      }
+      imported += 1;
+    }
+  }
+  const now = new Date().toISOString();
+  await database().prepare(`UPDATE email_import_preferences SET last_synced_at = ?, updated_at = ? WHERE owner_email = ?`)
+    .bind(now, now, ownerEmail).run();
+  return { ...(await getEmailImportStatus(ownerEmail)), importedThisSync: imported, skippedThisSync: skipped };
 }
 
 type UpstoxHolding = {
@@ -689,13 +1065,23 @@ export async function getPortfolioResponse(ownerEmail: string): Promise<Portfoli
 export async function deleteAllAccountData(ownerEmail: string): Promise<PortfolioResponse> {
   await ensureSchema();
   const db = database();
+  const storedFiles = await db.prepare(`SELECT storage_key FROM email_import_items WHERE owner_email = ?
+      UNION SELECT storage_key FROM evidence_documents WHERE owner_email = ? AND storage_key IS NOT NULL`)
+    .bind(ownerEmail, ownerEmail).all<{ storage_key: string }>();
+  if (storedFiles.results.length && globalThis.__PI_DOCUMENTS) {
+    await globalThis.__PI_DOCUMENTS.delete(storedFiles.results.map((item) => item.storage_key));
+  }
   await db.batch(accountDeletionStatements(db, ownerEmail));
   return getPortfolioResponse(ownerEmail);
 }
 
 function accountDeletionStatements(db: D1Database, ownerEmail: string) {
   return [
+    db.prepare("DELETE FROM email_import_items WHERE owner_email = ?").bind(ownerEmail),
+    db.prepare("DELETE FROM mailbox_connections WHERE owner_email = ?").bind(ownerEmail),
+    db.prepare("DELETE FROM email_import_preferences WHERE owner_email = ?").bind(ownerEmail),
     db.prepare("DELETE FROM evidence_documents WHERE owner_email = ?").bind(ownerEmail),
+    db.prepare("DELETE FROM portfolio_value_snapshots WHERE owner_email = ?").bind(ownerEmail),
     db.prepare("DELETE FROM portfolio_lots WHERE owner_email = ?").bind(ownerEmail),
     db.prepare("DELETE FROM import_rows WHERE batch_id IN (SELECT id FROM import_batches WHERE owner_email = ?)").bind(ownerEmail),
     db.prepare("DELETE FROM import_batches WHERE owner_email = ?").bind(ownerEmail),
@@ -770,11 +1156,12 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     prices,
   ).map((position) => {
     const mapping = mappings.get(position.symbol);
+    const inferredAnalysisSymbol = mapping?.analysis_symbol ?? (mapping ? marketDataSymbol(mapping.exchange, position.symbol) : null);
     return {
       ...position,
       exchange: mapping?.exchange ?? "UNKNOWN",
-      analysisSymbol: mapping?.analysis_symbol ?? null,
-      mappingStatus: mapping?.status ?? (portfolio.is_demo ? "unavailable" : "unresolved"),
+      analysisSymbol: inferredAnalysisSymbol,
+      mappingStatus: inferredAnalysisSymbol ? "confirmed" : mapping?.status ?? (portfolio.is_demo ? "unavailable" : "unresolved"),
     };
   });
   const totalValue = positions.reduce((sum, position) => sum + position.marketValue, 0);
@@ -823,6 +1210,23 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
 
   const historyMultipliers = [0.89, 0.91, 0.9, 0.94, 0.96, 0.955, 0.98, 1.0];
   const labels = ["May 05", "May 19", "Jun 02", "Jun 16", "Jun 30", "Jul 14", "Jul 28", "Aug 13"];
+  const sourceMode: DashboardData["sourceMode"] = accountHoldingResult.results.length ? "connected" : portfolio.is_demo ? "demo" : "manual";
+  const asOf = positions.reduce((latest, position) => position.priceAsOf > latest ? position.priceAsOf : latest, EMPTY_AS_OF);
+  let trackedHistory: DashboardData["valueHistory"] = [];
+  if (!portfolio.is_demo && asOf !== EMPTY_AS_OF) {
+    const now = new Date().toISOString();
+    await db.prepare(`INSERT OR IGNORE INTO portfolio_value_snapshots
+      (id, portfolio_id, owner_email, observed_at, total_value, total_cost, source_mode, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), portfolioId, ownerEmail, asOf, totalValue, totalCost, sourceMode, now).run();
+    const snapshots = await db.prepare(`SELECT observed_at, total_value FROM portfolio_value_snapshots
+      WHERE owner_email = ? AND portfolio_id = ? ORDER BY observed_at ASC LIMIT 366`)
+      .bind(ownerEmail, portfolioId).all<{ observed_at: string; total_value: number }>();
+    trackedHistory = snapshots.results.map((snapshot) => ({
+      label: snapshot.observed_at.slice(0, 10),
+      value: snapshot.total_value,
+    }));
+  }
 
   return {
     status: "ready",
@@ -842,9 +1246,10 @@ export async function getDashboard(ownerEmail: string): Promise<DashboardData> {
     documents,
     valueHistory: portfolio.is_demo
       ? labels.map((label, index) => ({ label, value: totalValue * historyMultipliers[index] }))
-      : [{ label: "Current", value: totalValue }],
-    asOf: positions.reduce((latest, position) => position.priceAsOf > latest ? position.priceAsOf : latest, EMPTY_AS_OF),
-    sourceMode: accountHoldingResult.results.length ? "connected" : portfolio.is_demo ? "demo" : "manual",
+      : trackedHistory.length ? trackedHistory : [{ label: "Current", value: totalValue }],
+    benchmarkHistory: [],
+    asOf,
+    sourceMode,
     connections,
     agentPolicy: {
       reserveFloorInr: 2_500_000,

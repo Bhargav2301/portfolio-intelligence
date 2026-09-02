@@ -9,6 +9,7 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     const after = Number(new URL(request.url).searchParams.get("after") ?? 0);
     return Response.json(await getAgentEvents(ownerFromRequest(request), runId, Number.isFinite(after) ? after : 0));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Agent events unavailable" }, { status: 502 });
+    const message = error instanceof Error ? error.message : "Agent events unavailable";
+    return Response.json({ error: message }, { status: message === "Run not found" ? 410 : 502 });
   }
 }

@@ -53,6 +53,21 @@ export function AgentDesk({ data, onRunChange }: { data: DashboardData; onRunCha
         ]);
         const nextRun = await runResponse.json() as AgentRun & { error?: string };
         const eventPayload = await eventResponse.json() as { events?: AgentRunEvent[] };
+        if (runResponse.status === 404 || runResponse.status === 410) {
+          const occurredAt = new Date().toISOString();
+          if (active) {
+            setRun((current) => current ? { ...current, status: "failed", completed_at: occurredAt, error: "This run expired after the external runtime restarted. Start a new check." } : current);
+            setEvents((current) => [...current, {
+              sequence: (current.at(-1)?.sequence ?? 0) + 1,
+              occurred_at: occurredAt,
+              level: "warning",
+              stage: "runtime",
+              message: "The external runtime restarted; this run is no longer available. Start a fresh check.",
+            }]);
+            onRunChange(null);
+          }
+          return;
+        }
         if (!runResponse.ok) throw new Error(nextRun.error ?? "Run status unavailable");
         if (active) {
           setRun(nextRun);
@@ -65,7 +80,7 @@ export function AgentDesk({ data, onRunChange }: { data: DashboardData; onRunCha
     const interval = window.setInterval(() => void poll(), 2000);
     void poll();
     return () => { active = false; window.clearInterval(interval); };
-  }, [runId, runStatus, afterSequence]);
+  }, [runId, runStatus, afterSequence, onRunChange]);
 
   async function startRun() {
     setBusy(true);

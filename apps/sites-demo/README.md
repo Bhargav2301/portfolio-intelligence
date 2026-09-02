@@ -20,15 +20,17 @@ environment.
 ## V1 test boundary
 
 - D1-backed, per-user portfolio and append-only transaction ledger
-- First-run manual setup, canonical CSV / normalized JSON import, and read-only Upstox OAuth contract
+- First-run wealth-manager sender prompt, manual setup, canonical CSV / normalized JSON import, and read-only OAuth contracts
 - Source-hashed import batches, normalized rows, and preserved acquisition lots
 - Buy and sell validation with explicit confirmation before persistence
 - Reversal events instead of destructive transaction edits
 - Deterministic holdings, cost basis, valuation, allocation, and what-if math
-- Source-tiered evidence records plus metadata-only PDF registration with content hashes
-- Research copilot for portfolio questions, performance, risk, and evidence
+- Source-tiered evidence records, private R2 document staging, and content hashes
+- Research copilot with portfolio, allowlisted live-web, and TradingAgents modes
+- Structured answers with KPI cards, deterministic tables, charts, and linked citations
+- Exact-sender Gmail read-only attachment intake with explicit consent and review-before-use status
 - Fail-closed response to personalized buy, sell, or hold requests
-- Responsive overview, research, activity, and scenario surfaces
+- Responsive overview, research, activity, scenario, accounts, and agent surfaces
 
 Demo portfolio data has been removed. Manual prices remain user-provided until
 updated; the Upstox connector becomes active only after production credentials
@@ -74,7 +76,8 @@ Scripts that need writable project-scoped home, npm, XDG, and temporary paths us
 - `.openai/hosting.json` is a public placeholder for the Sites binding manifest
 - `vite.config.ts` simulates declared bindings for local development
 - `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` defines portfolio, ledger, price, and evidence records
+- `db/schema.ts` defines portfolio, ledger, price, evidence, mailbox, and tracked-snapshot records
+- `DOCUMENTS` is the private R2 binding for mailbox attachment staging
 - `drizzle/` contains the deployable D1 migration
 - `drizzle.config.ts` supports local migration generation when needed
 

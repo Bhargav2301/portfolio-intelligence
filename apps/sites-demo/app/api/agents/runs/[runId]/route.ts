@@ -8,6 +8,7 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     const { runId } = await context.params;
     return Response.json(await getAgentRun(ownerFromRequest(request), runId));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Agent run unavailable" }, { status: 502 });
+    const message = error instanceof Error ? error.message : "Agent run unavailable";
+    return Response.json({ error: message }, { status: message === "Run not found" ? 410 : 502 });
   }
 }

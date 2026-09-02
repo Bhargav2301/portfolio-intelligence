@@ -52,7 +52,8 @@ and commit.
 pi-normalize-portfolio consolidated-holdings.xls --portfolio-name "Demo Portfolio" > normalized-portfolio.json
 ```
 
-No raw workbook or PDF is written to D1. The web application stores only the
-normalized rows, source SHA-256, and import audit metadata. PDFs remain evidence
-candidates until private object storage and owner-scoped document review are
-enabled.
+No raw workbook or PDF is written to D1. The web application stores normalized
+rows, source SHA-256, import audit metadata, and private object-storage keys.
+Mailbox attachments are copied only from the explicitly approved sender into the
+owner-scoped `DOCUMENTS` bucket and remain review candidates; they never become
+portfolio truth automatically.

@@ -92,7 +92,48 @@ class LangGraphPortfolioWorkflow:
                 "LangGraph workflow reached analysis without a selected symbol"
             )
         holding = state["holdings"][symbol]
-        result = self._engine.analyze(state["request"], holding, self._report_event)
+        try:
+            result = self._engine.analyze(
+                state["request"], holding, self._report_event
+            )
+        except Exception as error:
+            error_type = type(error).__name__
+            self._report_event(
+                "fallback",
+                f"{error_type}: upstream analysis was unavailable; recorded an abstention",
+                symbol,
+            )
+            result = SymbolResult(
+                symbol=holding.symbol,
+                analysis_symbol=holding.analysis_symbol or holding.symbol,
+                rating="Unknown",
+                executive_summary=(
+                    f"{holding.symbol} could not be completed by the upstream "
+                    "analyst graph. The run recorded an abstention instead of "
+                    "turning missing small-cap data into a portfolio-wide failure."
+                ),
+                investment_thesis=(
+                    "Insufficient reliable market, news, social, or fundamental "
+                    "coverage was returned for a directional conclusion."
+                ),
+                trader_action="Unknown",
+                trader_reasoning=(
+                    "No action was generated because the research graph did not "
+                    "complete with enough evidence."
+                ),
+                research_judgement="Abstain pending reliable source coverage.",
+                risk_judgement=(
+                    "Treat the missing analysis as a data-quality warning; do not "
+                    "infer neutral risk from missing data."
+                ),
+                policy_checks=[],
+                reports={
+                    "market": "Not returned",
+                    "sentiment": "Not returned",
+                    "news": "Not returned",
+                    "fundamentals": "Not returned",
+                },
+            )
         return {"pending_result": result}
 
     def _apply_policy(self, state: PortfolioWorkflowState) -> dict[str, object]:
