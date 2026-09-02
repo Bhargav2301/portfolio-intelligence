@@ -231,12 +231,13 @@ PORTFOLIO_LLM_PROVIDER=OpenRouter Gemma 4
 
 `PORTFOLIO_LLM_API_KEY` is stored as a protected Sites secret. The URL must include
 `/chat/completions`. Saved Site version 18 was privately redeployed with environment
-revision 5 on 2 September 2026. Redeploy the saved version again whenever a later Sites
+revision 6 on 2 September 2026 after the protected chat credential was revalidated.
+Redeploy the saved version again whenever a later Sites
 environment revision changes these values.
 
 ## Step 7: Connect Sites to the Render runtime
 
-This connection was completed on 2 September 2026. Sites environment revision 5
+This connection was completed on 2 September 2026. Sites environment revision 6
 contains the verified Render base URL and the protected matching token, and saved Site
 version 18 was privately redeployed. For a replacement runtime or token rotation, set
 these two Sites production variables:

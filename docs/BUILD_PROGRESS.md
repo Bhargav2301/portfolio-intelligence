@@ -13,7 +13,7 @@ This file is updated with the README as implementation changes.
 - The public normalizer uses runtime mappings or review-only derived symbols; customer-specific ticker aliases and private portfolio statistics are not compiled into the repository.
 - Local validation passes the optimized Sites build, 9 JavaScript tests, ESLint, and 6 Python ingestion/policy/LangGraph tests.
 - Durable server-side chat memory, raw private document storage, and Upstox OAuth remain activation or production-hardening work.
-- No model, broker, or runtime secret is committed. Owner-only Sites version 18 was privately redeployed with protected environment revision 5, the approved billed `google/gemma-4-26b-a4b-it` chat route, and the authenticated external TradingAgents/LangGraph runtime. Render health and shared-token authentication probes passed.
+- No model, broker, or runtime secret is committed. Owner-only Sites version 18 was privately redeployed with protected environment revision 6, the revalidated approved billed `google/gemma-4-26b-a4b-it` chat route, and the authenticated external TradingAgents/LangGraph runtime. Render health and shared-token authentication probes passed.
 
 ### Validation baseline
 

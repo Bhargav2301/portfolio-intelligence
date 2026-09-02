@@ -34,7 +34,8 @@ The public snapshot uses invented fixtures and excludes owner holdings, quantiti
 
 ## Inactive integrations and remaining gates
 
-- Sites version 18 was privately redeployed with protected environment revision 5. Portfolio chat
+- Sites version 18 was privately redeployed with protected environment revision 6 after the
+  protected chat credential was revalidated. Portfolio chat
   uses the approved billed `google/gemma-4-26b-a4b-it` OpenRouter route. The free Gemma route
   returned provider `429` responses during the 31 August preflight, while the approved standard
   route completed successfully.
