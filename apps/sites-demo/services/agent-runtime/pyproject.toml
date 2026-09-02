@@ -23,6 +23,9 @@ pi-normalize-portfolio = "pi_agent_runtime.ingestion:main"
 [project.optional-dependencies]
 test = ["httpx>=0.27,<1", "pytest>=8.3,<9"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pi_agent_runtime"]
 
