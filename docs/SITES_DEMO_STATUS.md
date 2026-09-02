@@ -36,7 +36,7 @@ Portfolio Intelligence Sites version 19 is active at [portfolio-intelligence.sat
 
 ## Public sanitization boundary
 
-The public snapshot uses invented fixtures and excludes owner holdings, quantities, prices, costs, source filenames, private-source aggregates, customer-specific ticker aliases, raw uploaded documents, runtime secrets, the live Sites project identifier, and generated Vinext font/cache artifacts. The placeholder `.openai/hosting.json` must be replaced by the Sites lifecycle before deploying a separate instance.
+The public snapshot uses invented fixtures and excludes owner holdings, quantities, prices, costs, source filenames, private-source aggregates, customer-specific ticker aliases, raw uploaded documents, OAuth/runtime secrets, and generated Vinext font/cache artifacts. The non-secret `.openai/hosting.json` project ID keeps this source reproducibly bound to the existing owner-only Site and must be replaced through the Sites lifecycle before deploying a separate instance.
 
 ## Inactive integrations and remaining gates
 

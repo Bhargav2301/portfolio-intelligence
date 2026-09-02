@@ -9,13 +9,13 @@ conversational layer.
 This directory is a sanitized source snapshot for the public repository. It uses
 synthetic fixtures and excludes owner portfolio names, source filenames,
 positions, costs, private-source aggregates, customer-specific ticker aliases,
-runtime credentials, and the live Sites project identifier. Generated Vinext
+OAuth and runtime credentials. The non-secret Sites project ID remains in the
+hosting manifest so this source can reproduce the existing deployment. Generated Vinext
 font/cache artifacts are also omitted and are recreated by the locked build.
 
-Before using this snapshot with Sites, initialize or edit the Site through the
-Sites lifecycle so `.openai/hosting.json` contains the actual project identifier.
-Never commit production environment values; configure them in the hosting
-environment.
+Before using this snapshot for a different Site, initialize or edit that Site through
+the Sites lifecycle and replace `.openai/hosting.json` with the new project identifier.
+Never commit production environment values; configure them in the hosting environment.
 
 ## V1 test boundary
 
@@ -73,7 +73,7 @@ Scripts that need writable project-scoped home, npm, XDG, and temporary paths us
 
 - product UI and API routes under `app/`
 - `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` is a public placeholder for the Sites binding manifest
+- `.openai/hosting.json` binds this source to the existing Site and declares D1/R2 logical bindings
 - `vite.config.ts` simulates declared bindings for local development
 - `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
 - `db/schema.ts` defines portfolio, ledger, price, evidence, mailbox, and tracked-snapshot records
