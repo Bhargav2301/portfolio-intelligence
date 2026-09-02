@@ -109,7 +109,11 @@ export function ResearchCopilot({ data, agentRunId, embedded = false }: {
               {message.citedSymbols && message.citedSymbols.length > 0 && <div className="chat-sources">{message.citedSymbols.map((symbol) => <span key={symbol}>{symbol} · TradingAgents artifact</span>)}</div>}
               {message.response && <div className="answer-meta">
                 <span>{message.response.engine === "llm" ? `${message.response.model ?? "LLM"}` : message.response.engine === "deterministic-fallback" ? "Portfolio fallback" : "Portfolio policy"}</span>
-                <span>{message.response.researchMode === "trusted-web" ? "Trusted web enabled" : "Account context"}</span>
+                <span>{message.response.researchMode === "trusted-web"
+                  ? message.response.engine === "llm" && message.response.citations.length > 0
+                    ? "Trusted web cited"
+                    : "Trusted web unavailable"
+                  : "Account context"}</span>
                 {message.response.fallbackReason && <span title={message.response.fallbackReason}>AI fallback · {message.response.fallbackReason}</span>}
               </div>}
             </div>

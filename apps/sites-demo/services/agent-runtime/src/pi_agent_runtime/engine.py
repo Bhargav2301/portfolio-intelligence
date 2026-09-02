@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
@@ -175,42 +176,86 @@ class TradingAgentsEngine:
         return cls._text(getattr(decision, key, None), fallback)
 
     @classmethod
+    def _markdown_field(cls, value: Any, label: str, fallback: str) -> str:
+        text = cls._text(value, "")
+        if not text:
+            return fallback
+        match = re.search(
+            rf"(?ims)^\s*\*\*{re.escape(label)}\*\*\s*:\s*(.+?)"
+            rf"(?=^\s*\*\*[^*\n]+\*\*\s*:|^\s*FINAL TRANSACTION PROPOSAL:|\Z)",
+            text,
+        )
+        return cls._text(match.group(1) if match else None, fallback)
+
+    @staticmethod
+    def _normalized_choice(value: Any, allowed: tuple[str, ...]) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().strip("*`).: ").lower()
+        return next((choice for choice in allowed if choice.lower() == normalized), None)
+
+    @classmethod
     def _to_result(
         cls,
         holding: HoldingSnapshot,
         state: dict[str, Any],
         decision: Any,
     ) -> SymbolResult:
-        rating = cls._decision_field(decision, "rating", "Unknown")
-        allowed_ratings = {"Buy", "Overweight", "Hold", "Underweight", "Sell"}
-        if rating not in allowed_ratings:
-            rating = "Unknown"
+        final_decision = state.get("final_trade_decision") or ""
+        allowed_ratings = ("Buy", "Overweight", "Hold", "Underweight", "Sell")
+        rating = (
+            cls._normalized_choice(
+                cls._decision_field(decision, "rating", ""), allowed_ratings
+            )
+            or cls._normalized_choice(decision, allowed_ratings)
+            or cls._normalized_choice(
+                cls._markdown_field(final_decision, "Rating", ""), allowed_ratings
+            )
+            or "Unknown"
+        )
 
         trader_plan = state.get("trader_investment_plan") or {}
-        trader_action = cls._decision_field(trader_plan, "action", "Unknown")
-        if trader_action not in {"Buy", "Hold", "Sell"}:
-            trader_action = "Unknown"
+        allowed_actions = ("Buy", "Hold", "Sell")
+        trader_action = (
+            cls._normalized_choice(
+                cls._decision_field(trader_plan, "action", ""), allowed_actions
+            )
+            or cls._normalized_choice(
+                cls._markdown_field(trader_plan, "Action", ""), allowed_actions
+            )
+            or "Unknown"
+        )
+
+        executive_summary = cls._decision_field(decision, "executive_summary", "")
+        if not executive_summary:
+            executive_summary = cls._markdown_field(
+                final_decision,
+                "Executive Summary",
+                "No executive summary was returned.",
+            )
+        investment_thesis = cls._decision_field(decision, "investment_thesis", "")
+        if not investment_thesis:
+            investment_thesis = cls._markdown_field(
+                final_decision,
+                "Investment Thesis",
+                "No investment thesis was returned.",
+            )
+        trader_reasoning = cls._decision_field(trader_plan, "reasoning", "")
+        if not trader_reasoning:
+            trader_reasoning = cls._markdown_field(
+                trader_plan,
+                "Reasoning",
+                "No trader summary was returned.",
+            )
 
         return SymbolResult(
             symbol=holding.symbol,
             analysis_symbol=holding.analysis_symbol or holding.symbol,
             rating=rating,
-            executive_summary=cls._decision_field(
-                decision,
-                "executive_summary",
-                "No executive summary was returned.",
-            ),
-            investment_thesis=cls._decision_field(
-                decision,
-                "investment_thesis",
-                "No investment thesis was returned.",
-            ),
+            executive_summary=executive_summary,
+            investment_thesis=investment_thesis,
             trader_action=trader_action,
-            trader_reasoning=cls._decision_field(
-                trader_plan,
-                "reasoning",
-                "No trader summary was returned.",
-            ),
+            trader_reasoning=trader_reasoning,
             research_judgement=cls._text(
                 (state.get("investment_debate_state") or {}).get("judge_decision"),
                 "No research-manager summary was returned.",

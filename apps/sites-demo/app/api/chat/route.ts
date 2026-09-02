@@ -107,6 +107,7 @@ function sanitizeFallbackReason(message: string) {
   if (status === "429") return "The model provider rate-limited this request";
   if (status && Number(status) >= 500) return "The model provider is temporarily unavailable";
   if (message.includes("Timeout") || message.includes("aborted")) return "The model request timed out";
+  if (message.includes("LLM_WEB_NO_TRUSTED_CITATIONS")) return "Trusted web search returned no citable sources";
   if (status === "400") return "The model provider rejected the request configuration";
   return "The model response could not be completed";
 }

@@ -24,7 +24,7 @@ from .models import (
 )
 from .orchestration import RunCoordinator
 
-app = FastAPI(title="PI TradingAgents Runtime", version="0.3.0", docs_url="/docs")
+app = FastAPI(title="PI TradingAgents Runtime", version="0.3.1", docs_url="/docs")
 coordinator = RunCoordinator.production_default()
 
 
@@ -58,7 +58,7 @@ def health() -> dict[str, str]:
         "orchestration": "langgraph",
         "workflow": "pi-portfolio-v1",
         "resilience": "per-symbol-abstention",
-        "version": "0.3.0",
+        "version": "0.3.1",
     }
 
 

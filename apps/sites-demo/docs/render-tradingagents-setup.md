@@ -198,7 +198,7 @@ Expected fields include:
   "runtime": "tradingagents",
   "orchestration": "langgraph",
   "workflow": "pi-portfolio-v1",
-  "version": "0.3.0"
+  "version": "0.3.1"
 }
 ```
 
@@ -265,7 +265,7 @@ Use synthetic portfolio data for this first run.
 4. Confirm the response identifies the live model rather than the deterministic
    fallback.
 5. Open **Agent Desk**.
-6. Confirm it reports an external `tradingagents` runtime, version `0.3.0`, and a
+6. Confirm it reports an external `tradingagents` runtime, version `0.3.1`, and a
    successful health check.
 7. Select one confirmed NSE or BSE holding and the smallest analyst configuration.
 8. Start one run and monitor its events until it reaches a terminal state.
@@ -286,7 +286,8 @@ Use synthetic portfolio data for this first run.
 | OpenRouter returns `401` | Rotate or recopy the provider key in both Render and Sites. |
 | OpenRouter returns `429` | Check account limits and provider capacity; the approved standard Gemma route is not the free alias. |
 | Model not found | Use `google/gemma-4-26b-a4b-it` and `z-ai/glm-5.3-flash` exactly. |
-| One small-cap symbol lacks provider coverage | Version `0.3.0` records an explicit `Unknown` abstention for that symbol and continues the portfolio run. Review the fallback event and source coverage. |
+| One small-cap symbol lacks provider coverage | Version `0.3.1` records an explicit `Unknown` abstention for that symbol and continues the portfolio run. Review the fallback event and source coverage. |
+| Run completes but the summary is empty | Version `0.3.1` parses the rendered Markdown returned by TradingAgents for the final rating, executive summary, investment thesis, trader action, and trader reasoning. Redeploy the runtime from the current `main` branch. |
 | Agent Desk remains demo-safe | Configure the Render base URL in Sites and redeploy. |
 | Health passes but a run fails | Inspect sanitized Render logs for provider, ticker mapping, outbound-data, or tool-call failures. |
 
