@@ -1,6 +1,6 @@
 # Build progress
 
-Last updated: 31 August 2026
+Last updated: 2 September 2026
 
 This file is updated with the README as implementation changes.
 
@@ -12,8 +12,8 @@ This file is updated with the README as implementation changes.
 - The responsive Sites UI includes collapsible navigation, portfolio setup, native CSV/TSV/XLS/XLSX/JSON selection, consolidated workbook flattening, PDF metadata plus SHA-256 registration, deterministic analytics, scenarios, evidence views, account-data deletion, and an in-session conversational copilot.
 - The public normalizer uses runtime mappings or review-only derived symbols; customer-specific ticker aliases and private portfolio statistics are not compiled into the repository.
 - Local validation passes the optimized Sites build, 9 JavaScript tests, ESLint, and 6 Python ingestion/policy/LangGraph tests.
-- Durable server-side chat memory, raw private document storage, the external TradingAgents runtime bridge, and Upstox OAuth remain activation or production-hardening work.
-- No model, broker, or runtime secret is committed. Owner-only Sites version 18 was privately redeployed with protected environment revision 4 and the approved billed `google/gemma-4-26b-a4b-it` chat route; the TradingAgents bridge remains demo-safe until its external runtime URL is configured.
+- Durable server-side chat memory, raw private document storage, and Upstox OAuth remain activation or production-hardening work.
+- No model, broker, or runtime secret is committed. Owner-only Sites version 18 was privately redeployed with protected environment revision 5, the approved billed `google/gemma-4-26b-a4b-it` chat route, and the authenticated external TradingAgents/LangGraph runtime. Render health and shared-token authentication probes passed.
 
 ### Validation baseline
 

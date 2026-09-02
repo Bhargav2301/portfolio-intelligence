@@ -8,9 +8,9 @@ This report lists configuration names only. It intentionally contains no secret 
 
 ## Executive finding
 
-The PI web application is deployed on OpenAI Sites, while the TradingAgents service remains a separate Python deployment. The Sites environment now contains the protected OpenRouter chat key and internal bridge token, but the server-to-server LangGraph bridge remains disabled until the external runtime URL is configured and a saved Site version is redeployed.
+The PI web application is deployed on OpenAI Sites, while the TradingAgents service remains a separate Python deployment. The Sites environment contains the protected OpenRouter chat key, runtime URL, and internal bridge token. The server-to-server LangGraph bridge is active after the external Render runtime passed health and shared-token authentication checks and saved Site version 18 was privately redeployed with environment revision 5.
 
-For the smallest working owner pilot, deploy the Python runtime with one supported LLM provider key and `PI_INTERNAL_API_TOKEN`, then configure the Sites worker with the runtime URL and the same bearer token. Upstox credentials are independent and are required only when read-only account linking is enabled.
+The owner pilot follows this topology: the Python runtime has one supported LLM provider key and `PI_INTERNAL_API_TOKEN`, while the Sites worker has the runtime URL and the same bearer token. Upstox credentials are independent and are required only when read-only account linking is enabled.
 
 ## Deployment topology and exact prerequisites
 
@@ -163,4 +163,4 @@ LangSmith is not referenced by the current code. `LANGSMITH_API_KEY` and `LANGSM
 
 ## Audit conclusion
 
-The source contains no embedded credential values. The OpenRouter credential and shared internal bearer token are staged in protected stores; the minimum remaining bridge input is the deployed runtime base URL. Agent execution and broker OAuth remain inactive until their independent deployment and connector gates are completed. Durable LangGraph state is an implementation gap rather than a missing current secret; Postgres and Redis must be added before production or multi-user rollout. See [`render-tradingagents-setup.md`](render-tradingagents-setup.md) for the exact owner-demo activation sequence.
+The source contains no embedded credential values. The OpenRouter credential, shared internal bearer token, and runtime base URL are configured in protected stores. Render health and shared-token authentication passed, and Sites version 18 was privately redeployed with environment revision 5. Broker OAuth remains inactive until its independent connector gates are completed. Durable LangGraph state is an implementation gap rather than a missing current secret; Postgres and Redis must be added before production or multi-user rollout. See [`render-tradingagents-setup.md`](render-tradingagents-setup.md) for the exact owner-demo activation sequence.

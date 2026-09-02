@@ -1,6 +1,6 @@
 # Hosted Sites demo status
 
-Last verified: 31 August 2026
+Last verified: 2 September 2026
 
 ## Outcome
 
@@ -34,13 +34,13 @@ The public snapshot uses invented fixtures and excludes owner holdings, quantiti
 
 ## Inactive integrations and remaining gates
 
-- Sites version 18 was privately redeployed with protected environment revision 4. Portfolio chat
+- Sites version 18 was privately redeployed with protected environment revision 5. Portfolio chat
   uses the approved billed `google/gemma-4-26b-a4b-it` OpenRouter route. The free Gemma route
   returned provider `429` responses during the 31 August preflight, while the approved standard
   route completed successfully.
-- The protected `TRADING_AGENTS_API_TOKEN` is staged and matches the locally prepared runtime token,
-  but `TRADING_AGENTS_API_URL` is not configured because the external runtime is not yet deployed.
-  Live TradingAgents runs therefore remain inactive.
+- The external Render runtime passed public health and shared-token authentication checks. The
+  protected `TRADING_AGENTS_API_URL` and `TRADING_AGENTS_API_TOKEN` are active in Sites, and Agent
+  Desk now uses the external TradingAgents/LangGraph bridge without committing runtime secrets.
 - `z-ai/glm-5.3-flash` completed the OpenRouter preflight successfully. The legacy
   `stealth/ox-alpha` identifier is retired and redirects callers to the stable GLM identifier.
 - Upstox requires its client ID, client secret, exact redirect URI, and connector-encryption key before read-only OAuth can be enabled.

@@ -1,6 +1,6 @@
 # Render and TradingAgents activation guide
 
-Last verified: 31 August 2026
+Last verified: 2 September 2026
 
 This guide activates the external Portfolio Intelligence TradingAgents runtime on
 Render and connects it to the owner-only OpenAI Sites deployment. It contains no
@@ -231,22 +231,24 @@ PORTFOLIO_LLM_PROVIDER=OpenRouter Gemma 4
 
 `PORTFOLIO_LLM_API_KEY` is stored as a protected Sites secret. The URL must include
 `/chat/completions`. Saved Site version 18 was privately redeployed with environment
-revision 4 on 31 August 2026. Redeploy the saved version again whenever a later Sites
+revision 5 on 2 September 2026. Redeploy the saved version again whenever a later Sites
 environment revision changes these values.
 
 ## Step 7: Connect Sites to the Render runtime
 
-After the Render health check passes, set these two Sites production variables:
+This connection was completed on 2 September 2026. Sites environment revision 5
+contains the verified Render base URL and the protected matching token, and saved Site
+version 18 was privately redeployed. For a replacement runtime or token rotation, set
+these two Sites production variables:
 
 ```dotenv
 TRADING_AGENTS_API_URL=https://YOUR-SERVICE.onrender.com
 TRADING_AGENTS_API_TOKEN=<same value as Render PI_INTERNAL_API_TOKEN>
 ```
 
-The token is already staged in Sites. Only the deployed Render base URL remains to be
-added. Provide that URL to the project operator without any token or API key. The
-operator must then save the environment revision and privately redeploy the saved Site
-version so the new runtime URL becomes active.
+Provide the replacement URL to the project operator without any token or API key. The
+operator must save the environment revision and privately redeploy the saved Site
+version so the updated runtime configuration becomes active.
 
 Do not add a trailing endpoint path. A trailing slash is tolerated, but the bare base
 URL is preferred.
